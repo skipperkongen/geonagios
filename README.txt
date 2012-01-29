@@ -1,0 +1,1 @@
+This will be a plugin to NAGIOS to monitor wms webservices
