@@ -5,19 +5,30 @@ from urllib import urlencode
 import random
 import time as t
 from optparse import OptionParser
+import datetime
+import hashlib
+
+###############
+# Setting up the options the user can set.
+# -w is the max time the service have to respond before a warning is given
+# -c is the max time the service have to respond before a critical warning is given
+# -t is the max time the service have to respond.
+# -n is the number of layers to test with
+# --cached is a flag. If the flag is set, the script will only use getCap one time a day
+###############
 
 parser = OptionParser()
 
 parser.add_option(  "-w", 
                     dest = "warning", 
-                    default = 10.0, 
-                    type = "float",
+                    default = 10000, 
+                    type = "int",
                     help = "The maximum time, accepted for the service to run normally"
                     )
 parser.add_option(  "-c", 
                     dest = "critical",
-                    default = 30.0,
-                    type = "float",
+                    default = 30000,
+                    type = "int",
                     help = "The threshold for the test, if the service doesn't respon by this time \
                             it's considered to be down"
                     )
@@ -25,7 +36,7 @@ parser.add_option(  "-t",
                     dest = "timeout",
                     default = None,
                     type = "int",
-                    help = "set the timeout timer (default is 40 sec.)"
+                    help = "set the timeout timer (default is 30 sec.)"
                     )
 parser.add_option(  "-n",
                     dest = "layerCount",
@@ -33,50 +44,84 @@ parser.add_option(  "-n",
                     type = "int",
                     help = "The numbers of layers to be checked (defualt is all of them)"
                     )
+parser.add_option(  "--cached", 
+                    dest = "cached", 
+                    action="store_true",
+                    help = "")
+                    
 (options, args) = parser.parse_args()
 
 def check_wms(options, urls):
-    """docstring for check_wms"""
+    """
+    Checks a wms service with options and url given
     
+    The following is an example on how to run the script:
+    
+        > python check_wms.py http://kort.arealinfo.dk/wms?servicename=landsdaekkende_wms -n 10 --cached -t 30
+        > Everything if O.K
+        
+    In this example the test service is http://kort.arealinfo.dk/wms?servicename=landsdaekkende_wms.
+    We only wanted to test 10 layers and the timeout is set to 20 sec
+    and we want the capabilitis to be cached.
+    
+    @rtype: int
+    @return: Returns a nagios return code
+    """
+    # Get the options set by the user
     url = urls[0]
     layerCount = options.layerCount
-    timeout = options.timeout
+    tout = options.timeout
     critTimer = options.critical
     warnTimer = options.warning
+    
+    flag = options.cached
+    
     try:
-        wms = WebMapService(url, timeout = timeout, version='1.1.1')
+        fName = newXml(url, flag, timeout = (tout/1000), version='1.1.1')
+        wms = WebMapService(fName, timeout = (tout/1000), version='1.1.1')
     except urllib2.URLError:
         print "Get Capability got a timeout"
         return 2
     
-    
     rOptions = wms.getRandomData(layerCount)
     
-    print rOptions
     
     #Runtime container
     timeDict = {}
     startTime = t.time()
+    
+    # Start to test the layers
     for layer in rOptions["Layers"]:
-        t0 = t.time()
-        check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
-        t1 = t.time()
-        time = t1 - t0
-        
-        result = 0
-        
-        if warnTimer <= time < critTimer:
-            result = 1
-        elif critTimer <= time < timeout:
+        try:
+            t0 = t.time()
+            check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
+            t1 = t.time()
+            time = t1 - t0
+            time*= 1000
+            # print "%s was %d before being done" % (layer[0], time)
+
+            result = 0
+
+            # Check what the result should be.
+            if warnTimer <= time < critTimer:
+                result = 1
+            elif critTimer <= time < tout:
+                result = 2
+        except urllib2.URLError, e:
             result = 2
+       
             
         if result not in timeDict:
             timeDict[result] = []
-        timeDict[result].append(layer)
+            
+        data = (layer[0], layer[1], time)
+        timeDict[result].append(data)
         
     endTime = t.time()
-    
-    print "it took %d sec" % (endTime - startTime)
+    capTime = (endTime - startTime) * 1000
+    # print "it took %f ms" % capTime
+
+    endData = packData(timeDict, capTime)
         
     keys = timeDict.keys()
     
@@ -85,15 +130,111 @@ def check_wms(options, urls):
     maximum = keys.pop()
     
     if maximum is 2:
-        print "there is %d layers, which is critical" % len(timeDict[maximum])
+        endStr = "there is %d layers, which is critical" % len(timeDict[maximum])
+        print "%s|%s" % (endStr, endData)
         return 2
     elif maximum is 1:
-        print "There is %d layers, which is warrning" % len(timeDict[maximum])
+        endStr = "There is %d layers, which is warrning" % len(timeDict[maximum])
+        print "%s|%s" % (endStr, endData)
         return 1
     else:
-        print "Everything is O.K"
+        endStr = "Everything is O.K"
+        print "%s|%s" % (endStr, endData)
         return 0
+        
+def packData(values, capTime):
+    """docstring for packData"""
+    timeList = []
+    resStr = ""
+    for key in values:
+        for value in values[key]:
+            name = value[0]
+            bbox = value[1]
+            time = value[2]
+        
+            timeList.append(time)
+            if key is 2:
+                nStr = "'t_%s'=%dms;%s" % (name, time, "crit")
+            elif key is 1:
+                nStr = "'t_%s'=%dms;%s" % (name, time, "warn")
+            else:
+                nStr = "'t_%s'=%dms" % (name, time)
+            
+            xStr = "'x_%s'=%d" % (name, (float(bbox[0]) + 50))
+            yStr = "'y_%s'=%d" % (name, (float(bbox[1]) + 50))
+        
+            resStr += ",%s,%s,%s" % (nStr, xStr, yStr)
+        
+    timeList.sort()
+    
+    minStr = ",'min_t'=%dms" % timeList[0]
+    maxStr = ",'max_t'=%dms" % timeList.pop()
+    oStr = "'get_capabilities'=%d" % capTime
+    
+    return oStr + maxStr + minStr + resStr
 
+def newXml(url, flag, timeout = None, version = "1.1.1"):
+    """
+    newXml determines if there will be made a new cached xml file of the capabilitis
+    
+    @param  url: The url of the service.
+    @param  flag: The flag set by the user, if this flag is said there won't be created a new xml file
+    @param  timeout: user specific timeout.
+    @param  verison: The version for the servcie.
+    @return: The filename of the xml file whether or not a new file was created.
+    """
+    # Get the base url and create a hash of it
+    # for the filename
+    realUrl = url.split('&')[0]
+    m = hashlib.md5()
+    m.update(realUrl)
+    fName = str(m.hexdigest()) + ".xml"
+    
+    if flag:
+        if not os.path.exists(fName) or not checkDate(fName):
+            getCap(realUrl, timeout, version)
+    else:
+        getCap(realUrl, timeout, version)
+        
+    return fName
+        
+        
+def checkDate(fName):
+    """
+    checkData checkes if the data the xml file was created is the same
+    as today
+    
+    @param  fName: The name of the file to check.
+    @return: whether or not the file was created today
+    """
+    year = t.localtime(os.stat(fName).st_atime).tm_year
+    mon = t.localtime(os.stat(fName).st_atime).tm_mon
+    day = t.localtime(os.stat(fName).st_atime).tm_mday
+    
+    if datetime.date(year, mon, day) == datetime.date.today():
+        return True
+    else:
+        return False
+        
+
+def getCap(url, timeout, version):
+    urlBase = url + "&version=" + version \
+          + "&service=wms&REQUEST=GetCapabilities"
+          
+    xmlCap = urllib2.urlopen(urlBase, timeout = timeout)
+    
+    m = hashlib.md5()
+    m.update(url)
+    
+    fName =  str(m.hexdigest()) + ".xml"
+    
+    fp = open(fName, 'w')
+    
+    fp.write(xmlCap.read())
+    
+    fp.close()
+    
+    return fName
 
 def check_service(wms, layer, style, srs, bbox, format, size = (200,200)):
     """docstring for check_service"""
@@ -107,8 +248,8 @@ def check_service(wms, layer, style, srs, bbox, format, size = (200,200)):
 
 class WebMapService():
     """docstring for WebMapService"""
-    def __init__(self, url, timeout = None, version="1.1.1"):
-        self.url = url
+    def __init__(self, fName, timeout = None, version="1.1.1"):
+        self.fName = fName
         self.version = version
         self.formats = []
         self.boundingbox = {}
@@ -119,14 +260,14 @@ class WebMapService():
 
     def getCapability(self):
         # Format url
-        urlsplits = self.url.split('&')
-        urlBase = urlsplits[0] + "&version=" + self.version \
-              + "&service=wms&REQUEST=GetCapabilities"
+        # urlsplits = self.url.split('&')
+        #        urlBase = urlsplits[0] + "&version=" + self.version \
+        #              + "&service=wms&REQUEST=GetCapabilities"
+        #        
+        #        # Open the url
+        #        f = urllib2.urlopen(urlBase, timeout = self.timeout)
         
-        # Open the url
-        f = urllib2.urlopen(urlBase, timeout = self.timeout)
-
-        etree = etree = tree.parse(f)
+        etree = tree.parse(self.fName)
         root = etree.getroot()
 
         capability = root.find("Capability")
@@ -167,10 +308,6 @@ class WebMapService():
                     bBox[b.attrib["SRS"]] = box
             l = Layer(name, title, bBox)
             self.layers.append(l)
-
-        print len(self.layers)
-        print self.formats
-        print self.boundingbox
     
 
     def getMap( self, layer, style, srs, 
@@ -217,12 +354,9 @@ class WebMapService():
         resDict = {}
 
         srs = random.sample(self.boundingbox.keys(), 1)[0]
-        print "count er "
         if count is not None and count < len(self.layers):
-            print "I randomData laver en sample"
             rLayers = random.sample(self.layers, count)
         else:
-            print "Der skal ikke laves en sample"
             rLayers = self.layers
             
         resDict["SRS"] = srs
@@ -238,8 +372,23 @@ class WebMapService():
 
 
 class Layer():
-    """docstring for Layer"""
+    """
+    The layer class keeps the information for each layer from the service
+    """
     def __init__(self, name, title, srs):
+        """
+        @type   name: string
+        @param  name: the name of the layer
+        
+        @type   title: string
+        @param  title: The title of the layer
+        
+        @type   srs: dict
+        @param  srs: A dictionary containing srs's and their bounding box
+        
+        @rtype: Layer object
+        @return: A layer containing all relevant data
+        """
         self.name = name
         self.title = title
         self.srs = srs
@@ -247,13 +396,13 @@ class Layer():
     def getRandomBbox(self, srs):
         """docstring for getRandomBbox"""
         bBox = self.srs[srs]
-        maxX = float(bBox[2]) - 10.0
-        maxY = float(bBox[3]) - 10.0
+        maxX = float(bBox[2]) - 100.0
+        maxY = float(bBox[3]) - 100.0
 
-        randomX = random.randrange(float(bBox[0]), maxX, 1)
-        randomY = random.randrange(float(bBox[1]), maxY, 1)
+        randomX = random.randrange(float(bBox[0]), maxX, 100)
+        randomY = random.randrange(float(bBox[1]), maxY, 100)
 
-        return (str(randomX), str(randomY), str(randomX + 10.0), str(randomY + 10.0))
+        return (str(randomX), str(randomY), str(randomX + 100.0), str(randomY + 100.0))
 
 check_wms(options, args)
     
