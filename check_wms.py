@@ -167,9 +167,9 @@ def packData(values, capTime):
         
     timeList.sort()
     
-    minStr = ",'min_t'=%dms" % timeList[0]
-    maxStr = ",'max_t'=%dms" % timeList.pop()
-    oStr = "'get_capabilities'=%d" % capTime
+    minStr = ",'t_min'=%dms" % timeList[0]
+    maxStr = ",'t_max'=%dms" % timeList.pop()
+    oStr = "'t_get_capabilities'=%d" % capTime
     
     return oStr + maxStr + minStr + resStr
 
