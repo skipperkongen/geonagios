@@ -48,6 +48,20 @@ parser.add_option(  "--cached",
                     dest = "cached", 
                     action="store_true",
                     help = "")
+parser.add_option(  "-l", 
+                    dest = "listLayer", 
+                    action="store_true",
+                    help = "Get list all the tested layers (This should not be used with nagios)")
+parser.add_option(  "-g", 
+                    dest = "getGeo", 
+                    action="store_true",
+                    help = "")
+parser.add_option(  "-s", 
+                    dest = "speLayer", 
+                    type = "string", 
+                    help = "specify layers to test (if multiple layers seperate with a ',')")
+                    
+
                     
 (options, args) = parser.parse_args()
 
@@ -68,31 +82,50 @@ def check_wms(options, urls):
     @return: Returns a nagios return code
     """
     # Get the options set by the user
-    url = urls[0]
+    url, args = packUrl(urls[0])
+    
     layerCount = options.layerCount
-    tout = options.timeout
+    if options.timeout is not None:
+        tout = (options.timeout / 1000)
+    else:
+        tout = options.timeout
     critTimer = options.critical
     warnTimer = options.warning
     
+    listLayers = options.listLayer
+    getGeo = options.getGeo
+    
     flag = options.cached
     
+    
     try:
-        fName = newXml(url, flag, timeout = (tout/1000), version='1.1.1')
-        wms = WebMapService(fName, timeout = (tout/1000), version='1.1.1')
-    except urllib2.URLError:
+        wms = WebMapService(url, args, flag, timeout = tout)
+    except urllib2.URLError, e:
+        raise e
         print "Get Capability got a timeout"
         return 2
     
     rOptions = wms.getRandomData(layerCount)
     
+    if options.speLayer is not None:
+        speLayers = options.speLayer.split(',')
+        layers = []
+        wmsLayers = wms.getLayersDict()
+        for lName in speLayers:
+            if lName in wmsLayers:
+                layers.append((lName, wmsLayers[lName].getRandomBbox(rOptions["SRS"])))
+    else:
+        layers = rOptions["Layers"]
     
     #Runtime container
     timeDict = {}
     startTime = t.time()
-    
+    time = 0
     # Start to test the layers
-    for layer in rOptions["Layers"]:
+    for layer in layers:
         try:
+            if listLayers is not None:
+                print layer[0]
             t0 = t.time()
             check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
             t1 = t.time()
@@ -109,6 +142,7 @@ def check_wms(options, urls):
                 result = 2
         except urllib2.URLError, e:
             result = 2
+            raise e
        
             
         if result not in timeDict:
@@ -121,7 +155,7 @@ def check_wms(options, urls):
     capTime = (endTime - startTime) * 1000
     # print "it took %f ms" % capTime
 
-    endData = packData(timeDict, capTime)
+    endData = packData(timeDict, capTime, getGeo)
         
     keys = timeDict.keys()
     
@@ -141,8 +175,28 @@ def check_wms(options, urls):
         endStr = "Everything is O.K"
         print "%s|%s" % (endStr, endData)
         return 0
+
+def packUrl(urlStr):
+    """docstring for packUrl"""
+    url = urlStr.split('?')[0]
+    
+    argDict = {}
+    
+    if len(urlStr.split('?')) > 1:
+        arg = urlStr.split('?')[1]
+        for argtup in arg.split('&'):
+            key, value = argtup.split('=')
+            argDict[key] = value
         
-def packData(values, capTime):
+    if not "version" in argDict:
+        argDict["version"] = "1.1.1"
+        
+    if not "service" in argDict:
+        argDict["service"] = "WMS"
+        
+    return url, argDict
+
+def packData(values, capTime, getGeo):
     """docstring for packData"""
     timeList = []
     resStr = ""
@@ -159,11 +213,13 @@ def packData(values, capTime):
                 nStr = "'t_%s'=%dms;%s" % (name, time, "warn")
             else:
                 nStr = "'t_%s'=%dms" % (name, time)
-            
-            xStr = "'x_%s'=%d" % (name, (float(bbox[0]) + 50))
-            yStr = "'y_%s'=%d" % (name, (float(bbox[1]) + 50))
-        
-            resStr += ",%s,%s,%s" % (nStr, xStr, yStr)
+                
+            if getGeo is not None:
+                xStr = "'x_%s'=%d" % (name, (float(bbox[0]) + 50))
+                yStr = "'y_%s'=%d" % (name, (float(bbox[1]) + 50))
+                resStr += ",%s,%s,%s" % (nStr, xStr, yStr)
+            else:
+                resStr += ",%s" % (nStr)
         
     timeList.sort()
     
@@ -173,68 +229,6 @@ def packData(values, capTime):
     
     return oStr + maxStr + minStr + resStr
 
-def newXml(url, flag, timeout = None, version = "1.1.1"):
-    """
-    newXml determines if there will be made a new cached xml file of the capabilitis
-    
-    @param  url: The url of the service.
-    @param  flag: The flag set by the user, if this flag is said there won't be created a new xml file
-    @param  timeout: user specific timeout.
-    @param  verison: The version for the servcie.
-    @return: The filename of the xml file whether or not a new file was created.
-    """
-    # Get the base url and create a hash of it
-    # for the filename
-    realUrl = url.split('&')[0]
-    m = hashlib.md5()
-    m.update(realUrl)
-    fName = str(m.hexdigest()) + ".xml"
-    
-    if flag:
-        if not os.path.exists(fName) or not checkDate(fName):
-            getCap(realUrl, timeout, version)
-    else:
-        getCap(realUrl, timeout, version)
-        
-    return fName
-        
-        
-def checkDate(fName):
-    """
-    checkData checkes if the data the xml file was created is the same
-    as today
-    
-    @param  fName: The name of the file to check.
-    @return: whether or not the file was created today
-    """
-    year = t.localtime(os.stat(fName).st_atime).tm_year
-    mon = t.localtime(os.stat(fName).st_atime).tm_mon
-    day = t.localtime(os.stat(fName).st_atime).tm_mday
-    
-    if datetime.date(year, mon, day) == datetime.date.today():
-        return True
-    else:
-        return False
-        
-
-def getCap(url, timeout, version):
-    urlBase = url + "&version=" + version \
-          + "&service=wms&REQUEST=GetCapabilities"
-          
-    xmlCap = urllib2.urlopen(urlBase, timeout = timeout)
-    
-    m = hashlib.md5()
-    m.update(url)
-    
-    fName =  str(m.hexdigest()) + ".xml"
-    
-    fp = open(fName, 'w')
-    
-    fp.write(xmlCap.read())
-    
-    fp.close()
-    
-    return fName
 
 def check_service(wms, layer, style, srs, bbox, format, size = (200,200)):
     """docstring for check_service"""
@@ -248,14 +242,17 @@ def check_service(wms, layer, style, srs, bbox, format, size = (200,200)):
 
 class WebMapService():
     """docstring for WebMapService"""
-    def __init__(self, fName, timeout = None, version="1.1.1"):
-        self.fName = fName
-        self.version = version
+    def __init__(self, url, urlArgs, flag, timeout = None):
+        self.url = url
+        self.urlArgs = urlArgs
+        self.version = urlArgs['version']
+        self.flag = flag
         self.formats = []
         self.boundingbox = {}
         self.timeout = timeout
         self.layers = []
         self.operation = {}
+        self.newXml()
         self.getCapability()
 
     def getCapability(self):
@@ -309,6 +306,73 @@ class WebMapService():
             l = Layer(name, title, bBox)
             self.layers.append(l)
     
+    def newXml(self):
+        """
+        newXml determines if there will be made a new cached xml file of the capabilitis
+
+        @param  url: The url of the service.
+        @param  flag: The flag set by the user, if this flag is said there won't be created a new xml file
+        @param  timeout: user specific timeout.
+        @param  verison: The version for the servcie.
+        @return: The filename of the xml file whether or not a new file was created.
+        """
+        # Get the base url and create a hash of it
+        # for the filename
+        realUrl = self.url
+        m = hashlib.md5()
+        m.update(realUrl)
+        fName = str(m.hexdigest()) + ".xml"
+
+        if self.flag:
+            if not os.path.exists(fName) or not self.checkDate(fName):
+                self.getCap()
+        else:
+            self.getCap()
+
+        self.fName = fName
+
+
+    def checkDate(self, fName):
+        """
+        checkData checkes if the data the xml file was created is the same
+        as today
+
+        @param  fName: The name of the file to check.
+        @return: whether or not the file was created today
+        """
+        year = t.localtime(os.stat(fName).st_atime).tm_year
+        mon = t.localtime(os.stat(fName).st_atime).tm_mon
+        day = t.localtime(os.stat(fName).st_atime).tm_mday
+
+        if datetime.date(year, mon, day) == datetime.date.today():
+            return True
+        else:
+            return False
+
+
+    def getCap(self):
+        
+        request = self.urlArgs
+        
+        if not "request" in request:
+            request["request"] = "GetCapabilities"
+        
+        data = urlencode(request)
+
+        xmlCap = urllib2.urlopen((self.url + "?" + data), timeout = self.timeout)
+
+        m = hashlib.md5()
+        m.update(self.url)
+
+        fName =  str(m.hexdigest()) + ".xml"
+
+        fp = open(fName, 'w')
+
+        fp.write(xmlCap.read())
+
+        fp.close()
+
+        self.fName = fName
 
     def getMap( self, layer, style, srs, 
                 bbox, format, size,
@@ -336,14 +400,14 @@ class WebMapService():
 
         data = urlencode(request)
 
-        u = urllib2.urlopen((urlBase + data), timeout = self.timeout)
+        u = urllib2.urlopen((urlBase + '?' + data), timeout = self.timeout)
 
         # check for service exceptions, and return
         if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
             se_xml = u.read()
             se_tree = tree.fromstring(se_xml)
             err_message = unicode(se_tree.find('ServiceException').text).strip()
-            raise ServiceException(err_message, se_xml)
+            print err_message
         return u
 
 
@@ -369,6 +433,12 @@ class WebMapService():
         resDict["Format"] = random.sample(self.formats, 1)[0]
 
         return resDict
+        
+    def getLayersDict(self):
+        layerDict = {}
+        for layer in self.layers:
+            layerDict[layer.name] = layer
+        return layerDict
 
 
 class Layer():
@@ -396,13 +466,22 @@ class Layer():
     def getRandomBbox(self, srs):
         """docstring for getRandomBbox"""
         bBox = self.srs[srs]
-        maxX = float(bBox[2]) - 100.0
-        maxY = float(bBox[3]) - 100.0
+        scaleX = 100.0 / (float(bBox[2]) - float(bBox[0]))
+        scaleY = 100.0 / (float(bBox[3]) - float(bBox[1]))
+        maxX = float(bBox[2]) - scaleX
+        maxY = float(bBox[3]) - scaleY
 
-        randomX = random.randrange(float(bBox[0]), maxX, 100)
-        randomY = random.randrange(float(bBox[1]), maxY, 100)
+        randomX = random.uniform(float(bBox[0]), maxX)
+        randomY = random.uniform(float(bBox[2]), maxY)
+        
+        res0 = "%.4f" % randomX
+        res1 = "%.4f" % randomY
+        res2 = "%.4f" % (randomX + scaleX)
+        res3 = "%.4f" % (randomY + scaleY)
+        
+        randomBox = (res0, res1, res2, res3)
 
-        return (str(randomX), str(randomY), str(randomX + 100.0), str(randomY + 100.0))
+        return randomBox
 
 check_wms(options, args)
     
