@@ -7,6 +7,7 @@ import time as t
 from optparse import OptionParser
 import datetime
 import hashlib
+import re
 
 ###############
 # Setting up the options the user can set.
@@ -44,7 +45,7 @@ parser.add_option(  "-n",
                     type = "int",
                     help = "The numbers of layers to be checked (defualt is all of them)"
                     )
-parser.add_option(  "--cached", 
+parser.add_option(  "--cache", 
                     dest = "cached", 
                     action="store_true",
                     help = "")
@@ -96,10 +97,10 @@ def check_wms(options, urls):
     getGeo = options.getGeo
     
     flag = options.cached
-    
+    fileHandler = FileHandler(url)
     
     try:
-        wms = WebMapService(url, args, flag, timeout = tout)
+        wms = WebMapService(url, args, flag, fileHandler, timeout = tout)
     except urllib2.URLError, e:
         raise e
         print "Get Capability got a timeout"
@@ -127,8 +128,9 @@ def check_wms(options, urls):
             if listLayers is not None:
                 print layer[0]
             t0 = t.time()
-            check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
+            pic = check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
             t1 = t.time()
+            fileHandler.savePic(layer[0], rOptions["Format"].split('/')[1], pic)
             time = t1 - t0
             time*= 1000
             # print "%s was %d before being done" % (layer[0], time)
@@ -142,6 +144,7 @@ def check_wms(options, urls):
                 result = 2
         except urllib2.URLError, e:
             result = 2
+            time = -1
             raise e
        
             
@@ -188,11 +191,11 @@ def packUrl(urlStr):
             key, value = argtup.split('=')
             argDict[key] = value
         
-    if not "version" in argDict:
-        argDict["version"] = "1.1.1"
+    if not "VERSION" in argDict:
+        argDict["VERSION"] = "1.1.1"
         
-    if not "service" in argDict:
-        argDict["service"] = "WMS"
+    if not "SERVICE" in argDict:
+        argDict["SERVICE"] = "WMS"
         
     return url, argDict
 
@@ -236,59 +239,55 @@ def check_service(wms, layer, style, srs, bbox, format, size = (200,200)):
                     style = style,
                     srs = srs,
                     bbox = bbox,
-                    size = size,
-                    format = format
+                    format = format,
+                    size = size
                     )
+    return img
 
 class WebMapService():
     """docstring for WebMapService"""
-    def __init__(self, url, urlArgs, flag, timeout = None):
+    def __init__(self, url, urlArgs, flag, fileHandler, timeout = None):
         self.url = url
         self.urlArgs = urlArgs
-        self.version = urlArgs['version']
+        self.version = urlArgs['VERSION']
         self.flag = flag
         self.formats = []
         self.boundingbox = {}
         self.timeout = timeout
         self.layers = []
         self.operation = {}
-        self.newXml()
+        self.fh = fileHandler
+        self._newXml()
         self.getCapability()
-
+    
+        
     def getCapability(self):
-        # Format url
-        # urlsplits = self.url.split('&')
-        #        urlBase = urlsplits[0] + "&version=" + self.version \
-        #              + "&service=wms&REQUEST=GetCapabilities"
-        #        
-        #        # Open the url
-        #        f = urllib2.urlopen(urlBase, timeout = self.timeout)
         
         etree = tree.parse(self.fName)
         root = etree.getroot()
-
+        
         capability = root.find("Capability")
-
+        
         getmap = capability.find("Request").find("GetMap")
-
+        
         for format in getmap.findall("Format"):
             self.formats.append(format.text)
-
+            
         get1 = getmap.find("DCPType/HTTP/Get/OnlineResource")
         self.operation["get"] = get1.attrib['{http://www.w3.org/1999/xlink}href']
-
+        
         layers = capability.find("Layer")
-
+        
         for srs in layers.findall("SRS"):
             self.boundingbox[srs.text] = []
-
+        
         bbox = layers.findall("BoundingBox")
-
+        
         for b in bbox:
             box = ( b.attrib["minx"], b.attrib["miny"] ,
                     b.attrib["maxx"], b.attrib["maxy"])
             self.boundingbox[b.attrib["SRS"]] = box
-
+        
         # Get all the layers!
         layer = layers.findall("Layer")
         for lay in layer:
@@ -306,117 +305,129 @@ class WebMapService():
             l = Layer(name, title, bBox)
             self.layers.append(l)
     
-    def newXml(self):
+    def _newXml(self):
         """
         newXml determines if there will be made a new cached xml file of the capabilitis
-
+        
         @param  url: The url of the service.
         @param  flag: The flag set by the user, if this flag is said there won't be created a new xml file
         @param  timeout: user specific timeout.
         @param  verison: The version for the servcie.
         @return: The filename of the xml file whether or not a new file was created.
         """
-        # Get the base url and create a hash of it
-        # for the filename
-        realUrl = self.url
-        m = hashlib.md5()
-        m.update(realUrl)
-        fName = str(m.hexdigest()) + ".xml"
-
+        fName = self.fh.cache
         if self.flag:
-            if not os.path.exists(fName) or not self.checkDate(fName):
-                self.getCap()
+            if fName is None or not self._checkDate(fName):
+                fName = self.fh.setCap(self.getCap())
         else:
-            self.getCap()
-
+            fName = self.fh.setCap(self.getCap())
+        
         self.fName = fName
-
-
-    def checkDate(self, fName):
+    
+    
+    def _checkDate(self, fName):
         """
         checkData checkes if the data the xml file was created is the same
         as today
-
+        
         @param  fName: The name of the file to check.
         @return: whether or not the file was created today
         """
         year = t.localtime(os.stat(fName).st_atime).tm_year
         mon = t.localtime(os.stat(fName).st_atime).tm_mon
         day = t.localtime(os.stat(fName).st_atime).tm_mday
-
+        
         if datetime.date(year, mon, day) == datetime.date.today():
             return True
         else:
             return False
-
-
+    
+    
     def getCap(self):
         
         request = self.urlArgs
         
-        if not "request" in request:
-            request["request"] = "GetCapabilities"
+        if not "REQUEST" in request:
+            request["REQUEST"] = "GetCapabilities"
         
         data = urlencode(request)
-
+        
         xmlCap = urllib2.urlopen((self.url + "?" + data), timeout = self.timeout)
-
-        m = hashlib.md5()
-        m.update(self.url)
-
-        fName =  str(m.hexdigest()) + ".xml"
-
-        fp = open(fName, 'w')
-
-        fp.write(xmlCap.read())
-
-        fp.close()
-
-        self.fName = fName
-
+        
+        del request["REQUEST"]
+        
+        return xmlCap
+    
+    
     def getMap( self, layer, style, srs, 
                 bbox, format, size,
                 bgcolor='#FFFFFF',
                 exceptions='application/vnd.ogc.se_xml',
                 method='Get',):
                 
-        urlBase = self.operation["get"]        
-        request = {'version': self.version, 'request': 'GetMap'}
-
-        request['layers'] = layer
+        urlBase = self.operation["get"]   
         
-        request['styles'] = style
+        request = self.urlArgs
+             
+        if not "VERSION" in request:
+            request["VERSION"] = self.version
+            
+        if not "REQUEST" in request:
+            request["REQUEST"] = 'GetMap'
+            
+        if not "LAYERS" in request:
+            request['LAYERS'] = layer
+            
+        print request
         
-        request['transparent'] = "FALSE"
-
-        request['width'] = str(size[0])
-        request['height'] = str(size[1])
-
-        request['srs'] = str(srs)
-        request['bbox'] = ','.join([repr(x) for x in bbox])
-        request['format'] = str(format)
-        request['bgcolor'] = '0x' + bgcolor[1:7]
+        if not "STYLES" in request:
+            request['STYLES'] = ""
+        
+        if not 'TRANSPARENT' in request:
+            request['TRANSPARENT'] = "FALSE"
+        
+        if not "WIDTH" in request:
+            request['WIDTH'] = str(size[0])
+            
+        if not "HEIGHT" in request:
+            request['HEIGHT'] = str(size[1])
+        
+        if not "SRS" in request:
+            request['SRS'] = str(srs)
+            
+        if not "BBOX" in request:
+            request['BBOX'] = ','.join([x for x in bbox])
+            
+        print request["BBOX"]
+            
+        if not "FORMAT" in request:
+            request['FORMAT'] = str(format)
+            
+        if not "BGCOLOR" in request:
+            request['bgcolor'] = '0x' + bgcolor[1:7]
+            
         request['exceptions'] = str(exceptions)
-
+        
         data = urlencode(request)
-
-        u = urllib2.urlopen((urlBase + '?' + data), timeout = self.timeout)
-
+        
+        print (urlBase + data)
+        
+        u = urllib2.urlopen((urlBase + data), timeout = self.timeout)
+        print u.info()
         # check for service exceptions, and return
-        if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
-            se_xml = u.read()
-            se_tree = tree.fromstring(se_xml)
-            err_message = unicode(se_tree.find('ServiceException').text).strip()
-            print err_message
-        return u
-
-
-
+        # if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
+        #     se_xml = u.read()
+        #     se_tree = tree.fromstring(se_xml)
+        #     err_message = unicode(se_tree.find('ServiceException').text).strip()
+        #     print err_message
+        return u.read()
+        
+    
     def getRandomData(self, count):
         """docstring for getRandomLayers"""
         #Container
         resDict = {}
-
+        
         srs = random.sample(self.boundingbox.keys(), 1)[0]
         if count is not None and count < len(self.layers):
             rLayers = random.sample(self.layers, count)
@@ -424,21 +435,23 @@ class WebMapService():
             rLayers = self.layers
             
         resDict["SRS"] = srs
-
+        
         resDict["Layers"] = []
-
+        
         for layer in rLayers:
             resDict["Layers"].append((layer.name, layer.getRandomBbox(srs)))
-
-        resDict["Format"] = random.sample(self.formats, 1)[0]
-
-        return resDict
         
+        resDict["Format"] = random.sample(self.formats, 1)[0]
+        
+        return resDict
+    
+    
     def getLayersDict(self):
         layerDict = {}
         for layer in self.layers:
             layerDict[layer.name] = layer
         return layerDict
+    
 
 
 class Layer():
@@ -462,17 +475,20 @@ class Layer():
         self.name = name
         self.title = title
         self.srs = srs
-
+    
+    
     def getRandomBbox(self, srs):
         """docstring for getRandomBbox"""
         bBox = self.srs[srs]
-        scaleX = 100.0 / (float(bBox[2]) - float(bBox[0]))
-        scaleY = 100.0 / (float(bBox[3]) - float(bBox[1]))
+        scaleX = (float(bBox[2]) - float(bBox[0])) / 100.0
+        scaleY = (float(bBox[3]) - float(bBox[1])) / 100.0
         maxX = float(bBox[2]) - scaleX
         maxY = float(bBox[3]) - scaleY
-
+        
+        print scaleX, scaleY
+        
         randomX = random.uniform(float(bBox[0]), maxX)
-        randomY = random.uniform(float(bBox[2]), maxY)
+        randomY = random.uniform(float(bBox[1]), maxY)
         
         res0 = "%.4f" % randomX
         res1 = "%.4f" % randomY
@@ -480,8 +496,75 @@ class Layer():
         res3 = "%.4f" % (randomY + scaleY)
         
         randomBox = (res0, res1, res2, res3)
-
+        
         return randomBox
+    
 
+
+class FileHandler():
+    """docstring for FileHandler"""
+    def __init__(self, url):
+        pattern = "http://(.[^/]+)"
+        self.dirName = re.findall(pattern, url)[0].replace(".", "_")
+        self.picDir = "check_wms_files/images/" + self.dirName
+        self.capDir = "check_wms_files/cache"
+        self.initDir()
+        self.cache = None
+        
+        
+    def initDir(self):
+        """docstring for initDir"""
+        if not os.path.exists("check_wms_files"):
+            os.mkdir("check_wms_files")
+            
+        if not os.path.exists("check_wms_files/cache"):
+            os.mkdir("check_wms_files/cache")
+            
+        if not os.path.exists("check_wms_files/images"):
+            os.mkdir("check_wms_files/images")
+            
+        if not os.path.exists("check_wms_files/images/" + self.dirName):
+            os.mkdir(("check_wms_files/images/" + self.dirName))
+            
+        m = hashlib.md5()
+        m.update(self.dirName)
+            
+        if os.path.exists(self.capDir + "/" + str(m.hexdigest()) + ".xml"):
+            print "weehee!!"
+            self.cache = self.capDir + "/" + str(m.hexdigest()) + ".xml"
+            
+    def savePic(self, lName, format, fd):
+        """docstring for save"""
+        fName = self.picDir + "/" + lName + "." + format
+        f = open(fName, 'w')
+        f.write(fd)
+        f.close()
+        
+    def setCap(self, xml):
+        """docstring for setCap"""
+        
+        m = hashlib.md5()
+        m.update(self.dirName)
+        
+        self.cache = self.capDir + "/" + str(m.hexdigest()) + ".xml"
+        
+        fp = open(self.cache, 'w')
+        
+        fp.write(xml.read())
+        
+        fp.close()
+        
+        return self.cache
+        
+    def setCapXml(self):
+        """docstring for setCapXml"""
+        if self.cache is not None:
+            fd = open(self.cache, 'r')
+            xml = fd.read()
+            fp.close()
+            return xml
+        return None
+    
+    
 check_wms(options, args)
     
