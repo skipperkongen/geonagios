@@ -8,6 +8,7 @@ from optparse import OptionParser
 import datetime
 import hashlib
 import re
+import mimetypes as mime
 
 ###############
 # Setting up the options the user can set.
@@ -49,6 +50,10 @@ parser.add_option(  "--cache",
                     dest = "cached", 
                     action="store_true",
                     help = "")
+parser.add_option(  "--image", 
+                    dest = "image", 
+                    action="store_true",
+                    help = "Set this flag, if you want to save the pictures")
 parser.add_option(  "-l", 
                     dest = "listLayer", 
                     action="store_true",
@@ -97,7 +102,10 @@ def check_wms(options, urls):
     getGeo = options.getGeo
     
     flag = options.cached
+    
     fileHandler = FileHandler(url)
+    
+    imgFlag = options.image
     
     try:
         wms = WebMapService(url, args, flag, fileHandler, timeout = tout)
@@ -130,7 +138,9 @@ def check_wms(options, urls):
             t0 = t.time()
             pic = check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
             t1 = t.time()
-            fileHandler.savePic(layer[0], rOptions["Format"].split('/')[1], pic)
+            size = sys.getsizeof(pic)
+            if imgFlag is not None:
+                fileHandler.savePic(layer[0], rOptions["Format"], pic)
             time = t1 - t0
             time*= 1000
             # print "%s was %d before being done" % (layer[0], time)
@@ -145,13 +155,14 @@ def check_wms(options, urls):
         except urllib2.URLError, e:
             result = 2
             time = -1
+            size = -1
             raise e
        
             
         if result not in timeDict:
             timeDict[result] = []
             
-        data = (layer[0], layer[1], time)
+        data = (layer[0], layer[1], time, size)
         timeDict[result].append(data)
         
     endTime = t.time()
@@ -189,7 +200,7 @@ def packUrl(urlStr):
         arg = urlStr.split('?')[1]
         for argtup in arg.split('&'):
             key, value = argtup.split('=')
-            argDict[key] = value
+            argDict[key.upper()] = value
         
     if not "VERSION" in argDict:
         argDict["VERSION"] = "1.1.1"
@@ -208,6 +219,7 @@ def packData(values, capTime, getGeo):
             name = value[0]
             bbox = value[1]
             time = value[2]
+            size = value[3]
         
             timeList.append(time)
             if key is 2:
@@ -216,6 +228,8 @@ def packData(values, capTime, getGeo):
                 nStr = "'t_%s'=%dms;%s" % (name, time, "warn")
             else:
                 nStr = "'t_%s'=%dms" % (name, time)
+                
+            nStr += ",'s_%s'=%dB" % (name, size)
                 
             if getGeo is not None:
                 xStr = "'x_%s'=%d" % (name, (float(bbox[0]) + 50))
@@ -294,16 +308,15 @@ class WebMapService():
             name = lay.find("Name").text
             title = lay.find("Title").text
             tmpBBox = lay.findall("BoundingBox")
-            if len(tmpBBox) is 0:
-                bBox = self.boundingbox
-            else:
-                bBox = {}
-                for b in tmpBBox:
-                    box = ( b.attrib["minx"], b.attrib["miny"] ,
-                            b.attrib["maxx"], b.attrib["maxy"])
-                    bBox[b.attrib["SRS"]] = box
+            bBox = self.boundingbox
+            for b in tmpBBox:
+                box = ( b.attrib["minx"], b.attrib["miny"] ,
+                        b.attrib["maxx"], b.attrib["maxy"])
+                bBox[b.attrib["SRS"]] = box
             l = Layer(name, title, bBox)
             self.layers.append(l)
+        
+    
     
     def _newXml(self):
         """
@@ -316,9 +329,11 @@ class WebMapService():
         @return: The filename of the xml file whether or not a new file was created.
         """
         fName = self.fh.cache
+        
         if self.flag:
             if fName is None or not self._checkDate(fName):
                 fName = self.fh.setCap(self.getCap())
+                
         else:
             fName = self.fh.setCap(self.getCap())
         
@@ -375,10 +390,7 @@ class WebMapService():
         if not "REQUEST" in request:
             request["REQUEST"] = 'GetMap'
             
-        if not "LAYERS" in request:
-            request['LAYERS'] = layer
-            
-        print request
+        request['LAYERS'] = layer
         
         if not "STYLES" in request:
             request['STYLES'] = ""
@@ -386,40 +398,33 @@ class WebMapService():
         if not 'TRANSPARENT' in request:
             request['TRANSPARENT'] = "FALSE"
         
-        if not "WIDTH" in request:
-            request['WIDTH'] = str(size[0])
+        request['WIDTH'] = str(size[0])
             
-        if not "HEIGHT" in request:
-            request['HEIGHT'] = str(size[1])
+        request['HEIGHT'] = str(size[1])
         
         if not "SRS" in request:
             request['SRS'] = str(srs)
             
-        if not "BBOX" in request:
-            request['BBOX'] = ','.join([x for x in bbox])
+        request['BBOX'] = ','.join([x for x in bbox])
             
-        print request["BBOX"]
+        request['FORMAT'] = str(format)
             
-        if not "FORMAT" in request:
-            request['FORMAT'] = str(format)
-            
-        if not "BGCOLOR" in request:
-            request['bgcolor'] = '0x' + bgcolor[1:7]
+        request['bgcolor'] = '0x' + bgcolor[1:7]
             
         request['exceptions'] = str(exceptions)
         
         data = urlencode(request)
         
-        print (urlBase + data)
+        if not "?" in urlBase:
+            urlBase += "?"
         
         u = urllib2.urlopen((urlBase + data), timeout = self.timeout)
-        print u.info()
         # check for service exceptions, and return
-        # if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
-        #     se_xml = u.read()
-        #     se_tree = tree.fromstring(se_xml)
-        #     err_message = unicode(se_tree.find('ServiceException').text).strip()
-        #     print err_message
+        if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
+            se_xml = u.read()
+            se_tree = tree.fromstring(se_xml)
+            err_message = unicode(se_tree.find('ServiceException').text).strip()
+            print err_message
         return u.read()
         
     
@@ -485,7 +490,6 @@ class Layer():
         maxX = float(bBox[2]) - scaleX
         maxY = float(bBox[3]) - scaleY
         
-        print scaleX, scaleY
         
         randomX = random.uniform(float(bBox[0]), maxX)
         randomY = random.uniform(float(bBox[1]), maxY)
@@ -509,7 +513,15 @@ class FileHandler():
         self.picDir = "check_wms_files/images/" + self.dirName
         self.capDir = "check_wms_files/cache"
         self.initDir()
-        self.cache = None
+        
+        m = hashlib.md5()
+        m.update(self.dirName)
+        fName = self.capDir + "/" + str(m.hexdigest()) + ".xml"
+        
+        if os.path.exists(fName):
+            self.cache = fName
+        else:
+            self.cache = None
         
         
     def initDir(self):
@@ -525,20 +537,21 @@ class FileHandler():
             
         if not os.path.exists("check_wms_files/images/" + self.dirName):
             os.mkdir(("check_wms_files/images/" + self.dirName))
-            
-        m = hashlib.md5()
-        m.update(self.dirName)
-            
-        if os.path.exists(self.capDir + "/" + str(m.hexdigest()) + ".xml"):
-            print "weehee!!"
-            self.cache = self.capDir + "/" + str(m.hexdigest()) + ".xml"
+    
             
     def savePic(self, lName, format, fd):
         """docstring for save"""
-        fName = self.picDir + "/" + lName + "." + format
+        exts = {"image/png8" : ".png", "image/png16" : ".png", "image/png32" : ".png",
+                "image/jpg" : ".jpg"}
+        ext = mime.guess_extension(format)
+        if ext is None:
+            ext = exts[format]
+        fName = self.picDir + "/" + lName + ext
         f = open(fName, 'w')
         f.write(fd)
         f.close()
+    
+        
         
     def setCap(self, xml):
         """docstring for setCap"""
