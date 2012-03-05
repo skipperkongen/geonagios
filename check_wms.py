@@ -70,211 +70,253 @@ parser.add_option(  "-s",
 
                     
 (options, args) = parser.parse_args()
-# 
-# class CheckWms():
-#     """docstring for CheckWms"""
-#     def __init__(self, options, args):
-#         self.options = options
-#         self.args = args
-#         self.checkOptions()
-#         
-#     def checkOptions(self):
-#         """docstring for checkOptions"""
-#         opt = self.options
-#         if  opt.layerCount is not None and 
-        
 
-def check_wms(options, urls):
-    """
-    Checks a wms service with options and url given
+class CheckWms():
+    """docstring for CheckWms"""
+    def __init__(self, options, args):
+        self.options = options
+        self.args = args
+        self.checkOptions()
+        self.setup()
     
-    The following is an example on how to run the script:
     
-        > python check_wms.py http://kort.arealinfo.dk/wms?servicename=landsdaekkende_wms -n 10 --cached -t 30
-        > Everything if O.K
-        
-    In this example the test service is http://kort.arealinfo.dk/wms?servicename=landsdaekkende_wms.
-    We only wanted to test 10 layers and the timeout is set to 20 sec
-    and we want the capabilitis to be cached.
-    
-    @rtype: int
-    @return: Returns a nagios return code
-    """
-    # Get the options set by the user
-    url, args = packUrl(urls[0])
-    
-    layerCount = options.layerCount
-    if options.timeout is not None:
-        tout = (options.timeout / 1000)
-    else:
-        tout = options.timeout
-    critTimer = options.critical
-    warnTimer = options.warning
-    
-    listLayers = options.listLayer
-    getGeo = options.getGeo
-    
-    flag = options.cached
-    
-    fileHandler = FileHandler(url)
-    
-    imgFlag = options.image
-    
-    try:
-        wms = WebMapService(url, args, flag, fileHandler, timeout = tout)
-    except urllib2.URLError, e:
-        raise e
-        print "Get Capability got a timeout"
-        return 2
-    
-    rOptions = wms.getRandomData(layerCount)
-    
-    if options.speLayer is not None:
-        speLayers = options.speLayer.split(',')
-        layers = []
-        wmsLayers = wms.getLayersDict()
-        for lName in speLayers:
-            if lName in wmsLayers:
-                layers.append((lName, wmsLayers[lName].getRandomBbox(rOptions["SRS"])))
-    else:
-        layers = rOptions["Layers"]
-    
-    #Runtime container
-    timeDict = {}
-    startTime = t.time()
-    time = 0
-    # Start to test the layers
-    for layer in layers:
+    def checkOptions(self):
+        """docstring for checkOptions"""
+        opt = self.options
         try:
-            if listLayers is not None:
-                print layer[0]
-            t0 = t.time()
-            pic = check_service(wms, layer[0], "default", rOptions["SRS"], layer[1], rOptions["Format"])
-            t1 = t.time()
-            size = sys.getsizeof(pic)
-            if imgFlag is not None:
-                fileHandler.savePic(layer[0], rOptions["Format"], pic)
-            time = t1 - t0
-            time *= 1000
-            # print "%s was %d before being done" % (layer[0], time)
-
-            result = 0
-
-            # Check what the result should be.
-            print warnTimer, time ,critTimer, tout
+            if opt.listLayer is not None:
+                if opt.layerCount is not None or \
+                        opt.speLayer is not None:
+                    raise WmsError("You can not use -s and/or -n with -l")
             
-            if warnTimer <= time:
-                print "there is a warn"
-                result = 1
-            if critTimer <= time:
-                print "there is a crit"
-                result = 2
+            if opt.layerCount is not None:
+                if opt.speLayer is not None:
+                    raise WmsError("Please only specify -s or -n")
+                    
+            elif opt.speLayer is not None:
+                if opt.layerCount is not None:
+                    raise WmsError("Please only specify -s or -n")
+                    
+        except WmsError, e:
+            print e.value
+            raise sys.exit("")
+    
+    
+    def setup(self):
+        """docstring for setup"""
+        url = urllib2.unquote(args[0])
+        self.url, self.argDict = self.packUrl(url)
+    
+    
+    def run(self):
+        """docstring for run"""
+        opt = self.options
+        
+        self.lCount = opt.layerCount
+        
+        if opt.timeout is not None:
+            self.tout = (opt.timeout / 1000)
+        else:
+            self.tout = opt.timeout
+            
+        self.critTimer = opt.critical
+        self.warnTimer = opt.warning
+        
+        listLayers = opt.listLayer
+        self.getGeo = opt.getGeo
+        
+        flag = opt.cached
+        
+        self.fileHandler = FileHandler(self.url)
+        
+        self.imgFlag = opt.image
+        
+        try:
+            self.wms = WebMapService(self.url, self.argDict, 
+                                        flag, self.fileHandler, timeout = self.tout)
+        except urllib2.HTTPError, e:
+            print "HTTPerror code: %s, reason: %s" % (e.code, e.msg)
+            return 2
         except urllib2.URLError, e:
-            result = 2
-            time = -1
-            size = -1
-            raise e
-        
-        print result
+            print "Get Capability got a timeout"
+            return 2
             
-        if result not in timeDict:
-            timeDict[result] = []
+        
+        if listLayers is not None:
+            self.listLayers()
+            return 0
             
-        data = (layer[0], layer[1], time, size)
-        timeDict[result].append(data)
+        rData = self.wms.getRandomData(self.lCount)
         
-    endTime = t.time()
-    capTime = (endTime - startTime) * 1000
-    # print "it took %f ms" % capTime
-
-    endData = packData(timeDict, capTime, getGeo)
-        
-    keys = timeDict.keys()
-    
-    keys.sort()
-    
-    maximum = keys.pop()
-    
-    if maximum is 2:
-        endStr = "there is %d layers, which is critical" % len(timeDict[maximum])
-        print "%s|%s" % (endStr, endData)
-        return 2
-    elif maximum is 1:
-        endStr = "There is %d layers, which is warrning" % len(timeDict[maximum])
-        print "%s|%s" % (endStr, endData)
-        return 1
-    else:
-        endStr = "Everything is O.K"
-        print "%s|%s" % (endStr, endData)
-        return 0
-
-def packUrl(urlStr):
-    """docstring for packUrl"""
-    url = urlStr.split('?')[0]
-    
-    argDict = {}
-    
-    if len(urlStr.split('?')) > 1:
-        arg = urlStr.split('?')[1]
-        for argtup in arg.split('&'):
-            key, value = argtup.split('=')
-            argDict[key.upper()] = value
-        
-    if not "VERSION" in argDict:
-        argDict["VERSION"] = "1.1.1"
-        
-    if not "SERVICE" in argDict:
-        argDict["SERVICE"] = "WMS"
-        
-    return url, argDict
-
-def packData(values, capTime, getGeo):
-    """docstring for packData"""
-    timeList = []
-    resStr = ""
-    for key in values:
-        for value in values[key]:
-            name = value[0]
-            bbox = value[1]
-            time = value[2]
-            size = value[3]
-        
-            timeList.append(time)
-            if key is 2:
-                nStr = "'t_%s'=%dms;%s" % (name, time, "crit")
-            elif key is 1:
-                nStr = "'t_%s'=%dms;%s" % (name, time, "warn")
+        try:
+            if opt.speLayer is not None:
+                rData["Layers"] = self.checkLayers(opt.speLayer, rData["SRS"])
+            
+            maximum, tData, tCap = self.checkWms(rData)
+            
+            pData = self.packData(tData, tCap, self.getGeo)
+            
+            if maximum is 2:
+                endStr = "there is at least one layer, which is critical"
+                print "%s|%s" % (endStr, pData)
+                return 2
+            elif maximum is 1:
+                endStr = "There is at least one layer, which is warrning"
+                print "%s|%s" % (endStr, pData)
+                return 1
             else:
-                nStr = "'t_%s'=%dms" % (name, time)
-                
-            nStr += ",'s_%s'=%dB" % (name, size)
-                
-            if getGeo is not None:
-                xStr = "'x_%s'=%d" % (name, (float(bbox[0]) + 50))
-                yStr = "'y_%s'=%d" % (name, (float(bbox[1]) + 50))
-                resStr += ",%s,%s,%s" % (nStr, xStr, yStr)
-            else:
-                resStr += ",%s" % (nStr)
+                endStr = "Everything is O.K"
+                print "%s|%s" % (endStr, pData)
+                return 0
+            
+        except WmsError, e:
+            print e.value
+            return 2
         
-    timeList.sort()
     
-    minStr = ",'t_min'=%dms" % timeList[0]
-    maxStr = ",'t_max'=%dms" % timeList.pop()
-    oStr = "'t_get_capabilities'=%dms" % capTime
     
-    return oStr + maxStr + minStr + resStr
+    def checkWms(self, rData):
+        timeDict = {}
+        startTime = t.time()
+        time = 0
+        # Start to test the layers
+        for layer in rData["Layers"]:
+            try:
+                t0 = t.time()
+                pic = self.check_service(self.wms, layer[0], "default", rData["SRS"], layer[1], rData["Format"])
+                t1 = t.time()
+                size = sys.getsizeof(pic)
+                if self.imgFlag is not None:
+                    self.fileHandler.savePic(layer[0], rData["Format"], pic)
+                time = t1 - t0
+                time *= 1000
+                # print "%s was %d before being done" % (layer[0], time)
+                
+                result = 0
+                
+                # Check what the result should be.
+                
+                if self.warnTimer <= time:
+                    result = 1
+                if self.critTimer <= time:
+                    result = 2
+            except urllib2.URLError, e:
+                result = 2
+                time = -1
+                size = -1
+                
+            if result not in timeDict:
+                timeDict[result] = []
+                
+            data = (layer[0], layer[1], time, size)
+            timeDict[result].append(data)
+            
+        endTime = t.time()
+        capTime = (endTime - startTime) * 1000
+        
+        keys = timeDict.keys()
+        
+        keys.sort()
+        
+        maximum = keys.pop()
+        
+        return (maximum, timeDict, capTime)
+    
+    
+    def check_service(self, wms, layer, style, srs, bbox, format, size = (200,200)):
+        """docstring for check_service"""
+        img = wms.getMap( layer = layer,
+                        style = style,
+                        srs = srs,
+                        bbox = bbox,
+                        format = format,
+                        size = size
+                        )
+        return img
+    
+    
+    def checkLayers(self, speLayer, srs):
+        layers = speLayer.split(",")
+        isLayer = False
+        realLayer = []
+        wmsLayer = self.wms.getLayersDict()
+        for l in layers:
+            if l in wmsLayer:
+                isLayer = True
+                realLayer.append((wmsLayer[l].name, wmsLayer[l].getRandomBbox(srs)))
+            else:
+                layers.remove(l)
+        if not isLayer:
+            raise WmsError("The layer(s) you have selected can not be found in this service")
+            
+        return realLayer
+    
+    
+    def listLayers(self):
+        """docstring for listLayers"""
+        print "The layers for url %s are:" % self.url
+        for layer in self.wms.getLayersDict():
+            print layer
+    
+    
+    def packUrl(self, urlStr):
+        """docstring for packUrl"""
+        url = urlStr.split('?')[0]
+        
+        argDict = {}
+        
+        if len(urlStr.split('?')) > 1:
+            arg = urlStr.split('?')[1]
+            for argtup in arg.split('&'):
+                key, value = argtup.split('=')
+                argDict[key.upper()] = value
+                
+        if not "VERSION" in argDict:
+            argDict["VERSION"] = "1.1.1"
+            
+        if not "SERVICE" in argDict:
+            argDict["SERVICE"] = "WMS"
+            
+        return url, argDict
+    
+    
+    def packData(self, values, capTime, getGeo):
+        """docstring for packData"""
+        timeList = []
+        resStr = ""
+        for key in values:
+            for value in values[key]:
+                name = value[0]
+                bbox = value[1]
+                time = value[2]
+                size = value[3]
+                
+                timeList.append(time)
+                if key is 2:
+                    nStr = "'t_%s'=%dms;%s" % (name, time, "crit")
+                elif key is 1:
+                    nStr = "'t_%s'=%dms;%s" % (name, time, "warn")
+                else:
+                    nStr = "'t_%s'=%dms" % (name, time)
+                    
+                nStr += ",'s_%s'=%dB" % (name, size)
+                
+                if getGeo is not None:
+                    xStr = "'x_%s'=%d" % (name, (float(bbox[0]) + 50))
+                    yStr = "'y_%s'=%d" % (name, (float(bbox[1]) + 50))
+                    resStr += ",%s,%s,%s" % (nStr, xStr, yStr)
+                else:
+                    resStr += ",%s" % (nStr)
+                    
+        timeList.sort()
+        
+        minStr = ",'t_min'=%dms" % timeList[0]
+        maxStr = ",'t_max'=%dms" % timeList.pop()
+        oStr = "'t_get_capabilities'=%dms" % capTime
+        
+        return (oStr + maxStr + minStr + resStr)
+    
 
-
-def check_service(wms, layer, style, srs, bbox, format, size = (200,200)):
-    """docstring for check_service"""
-    img = wms.getMap( layer = layer,
-                    style = style,
-                    srs = srs,
-                    bbox = bbox,
-                    format = format,
-                    size = size
-                    )
-    return img
 
 class WebMapService():
     """docstring for WebMapService"""
@@ -294,45 +336,50 @@ class WebMapService():
     
         
     def getCapability(self):
-        
-        etree = tree.parse(self.fName)
-        root = etree.getroot()
-        
-        capability = root.find("Capability")
-        
-        getmap = capability.find("Request").find("GetMap")
-        
-        for format in getmap.findall("Format"):
-            self.formats.append(format.text)
+        try:
+            etree = tree.parse(self.fName)
+            root = etree.getroot()
             
-        get1 = getmap.find("DCPType/HTTP/Get/OnlineResource")
-        self.operation["get"] = get1.attrib['{http://www.w3.org/1999/xlink}href']
-        
-        layers = capability.find("Layer")
-        
-        for srs in layers.findall("SRS"):
-            self.boundingbox[srs.text] = []
-        
-        bbox = layers.findall("BoundingBox")
-        
-        for b in bbox:
-            box = ( b.attrib["minx"], b.attrib["miny"] ,
-                    b.attrib["maxx"], b.attrib["maxy"])
-            self.boundingbox[b.attrib["SRS"]] = box
-        
-        # Get all the layers!
-        layer = layers.findall("Layer")
-        for lay in layer:
-            name = lay.find("Name").text
-            title = lay.find("Title").text
-            tmpBBox = lay.findall("BoundingBox")
-            bBox = self.boundingbox
-            for b in tmpBBox:
+            capability = root.find("Capability")
+            
+            getmap = capability.find("Request").find("GetMap")
+            
+            for format in getmap.findall("Format"):
+                self.formats.append(format.text)
+                
+            get1 = getmap.find("DCPType/HTTP/Get/OnlineResource")
+            self.operation["get"] = get1.attrib['{http://www.w3.org/1999/xlink}href']
+            
+            layers = capability.find("Layer")
+            
+            for srs in layers.findall("SRS"):
+                self.boundingbox[srs.text] = []
+                
+            bbox = layers.findall("BoundingBox")
+            
+            for b in bbox:
                 box = ( b.attrib["minx"], b.attrib["miny"] ,
                         b.attrib["maxx"], b.attrib["maxy"])
-                bBox[b.attrib["SRS"]] = box
-            l = Layer(name, title, bBox)
-            self.layers.append(l)
+                self.boundingbox[b.attrib["SRS"]] = box
+                
+            # Get all the layers!
+            layer = layers.findall("Layer")
+            for lay in layer:
+                name = lay.find("Name").text
+                title = lay.find("Title").text
+                tmpBBox = lay.findall("BoundingBox")
+                bBox = self.boundingbox
+                for b in tmpBBox:
+                    box = ( b.attrib["minx"], b.attrib["miny"] ,
+                            b.attrib["maxx"], b.attrib["maxy"])
+                    bBox[b.attrib["SRS"]] = box
+                l = Layer(name, title, bBox)
+                self.layers.append(l)
+        except tree.ParseError, e:
+            print "Something is wrong with the xml from getcapabilities" \
+                    + "\nPlease check you have entered a valid url"
+            raise sys.exit("")
+        
         
     
     
@@ -347,13 +394,17 @@ class WebMapService():
         @return: The filename of the xml file whether or not a new file was created.
         """
         fName = self.fh.cache
-        
-        if self.flag:
-            if fName is None or not self._checkDate(fName):
+        try:
+            if self.flag:
+                if fName is None or not self._checkDate(fName):
+                    fName = self.fh.setCap(self.getCap())
+                    
+            else:
                 fName = self.fh.setCap(self.getCap())
-                
-        else:
-            fName = self.fh.setCap(self.getCap())
+        except WmsError, e:
+            print e.value
+            raise sys.exit("")
+            
         
         self.fName = fName
     
@@ -378,18 +429,47 @@ class WebMapService():
     
     def getCap(self):
         
-        request = self.urlArgs
-        
-        if not "REQUEST" in request:
-            request["REQUEST"] = "GetCapabilities"
-        
+        request = self.capRequest()
+            
         data = urlencode(request)
         
         xmlCap = urllib2.urlopen((self.url + "?" + data), timeout = self.timeout)
         
-        del request["REQUEST"]
+        # del request["REQUEST"]
         
+        if xmlCap.info()['Content-Type'] == 'application/xml charset=utf-8':
+            se_xml = xmlCap.read()
+            se_tree = tree.fromstring(se_xml)
+            err_message = unicode(se_tree.find('ServiceException').text).strip()
+            raise WmsError(err_message)
         return xmlCap
+    
+    
+    def capRequest(self):
+        """docstring for capRequest"""
+        request = {}
+        
+        if not "REQUEST" in self.urlArgs:
+            request["REQUEST"] = "GetCapabilities"
+        elif not self.urlArgs["REQUEST"] == "GetCapabilities":
+            request["REQUEST"] = "GetCapabilities"
+        else:
+            request["REQUEST"] = self.urlArgs["REQUEST"]
+            
+        request["VERSION"] = self.urlArgs["VERSION"]
+        
+        request["SERVICE"] = self.urlArgs["SERVICE"]
+        
+        if "SERVICENAME" in self.urlArgs:
+            request["SERVICENAME"] = self.urlArgs["SERVICENAME"]
+            
+        if "PASSWORD" in self.urlArgs:
+            request["PASSWORD"] = self.urlArgs["PASSWORD"]
+            
+        if "LOGIN" in self.urlArgs:
+            request["LOGIN"] = self.urlArgs["LOGIN"]
+            
+        return request
     
     
     def getMap( self, layer, style, srs, 
@@ -397,7 +477,7 @@ class WebMapService():
                 bgcolor='#FFFFFF',
                 exceptions='application/vnd.ogc.se_xml',
                 method='Get',):
-                
+        
         urlBase = self.operation["get"]   
         
         request = self.urlArgs
@@ -405,7 +485,7 @@ class WebMapService():
         if not "VERSION" in request:
             request["VERSION"] = self.version
             
-        if not "REQUEST" in request:
+        if not "REQUEST" in request or not request["REQUEST"] == 'GetMap':
             request["REQUEST"] = 'GetMap'
             
         request['LAYERS'] = layer
@@ -427,24 +507,27 @@ class WebMapService():
             
         request['FORMAT'] = str(format)
             
-        request['bgcolor'] = '0x' + bgcolor[1:7]
+        request['BGCOLOR'] = '0x' + bgcolor[1:7]
             
-        request['exceptions'] = str(exceptions)
+        request['EXCEPTIONS'] = str(exceptions)
         
         data = urlencode(request)
         
         if not "?" in urlBase:
             urlBase += "?"
         
+        print (urlBase + data)
+        
         u = urllib2.urlopen((urlBase + data), timeout = self.timeout)
         # check for service exceptions, and return
-        if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
-            se_xml = u.read()
-            se_tree = tree.fromstring(se_xml)
-            err_message = unicode(se_tree.find('ServiceException').text).strip()
-            print err_message
-        return u.read()
         
+        if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
+              se_xml = u.read()
+              se_tree = tree.fromstring(se_xml)
+              err_message = unicode(se_tree.find('ServiceException').text).strip()
+              print err_message
+        return u.read()
+    
     
     def getRandomData(self, count):
         """docstring for getRandomLayers"""
@@ -540,7 +623,7 @@ class FileHandler():
             self.cache = fName
         else:
             self.cache = None
-        
+    
         
     def initDir(self):
         """docstring for initDir"""
@@ -586,7 +669,8 @@ class FileHandler():
         fp.close()
         
         return self.cache
-        
+    
+    
     def setCapXml(self):
         """docstring for setCapXml"""
         if self.cache is not None:
@@ -606,5 +690,7 @@ class WmsError(Exception):
         return repr(self.value)
     
 
-check_wms(options, args)
+
+# check_wms(options, args)
+CheckWms(options, args).run()
     
