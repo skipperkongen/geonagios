@@ -70,6 +70,19 @@ parser.add_option(  "-s",
 
                     
 (options, args) = parser.parse_args()
+# 
+# class CheckWms():
+#     """docstring for CheckWms"""
+#     def __init__(self, options, args):
+#         self.options = options
+#         self.args = args
+#         self.checkOptions()
+#         
+#     def checkOptions(self):
+#         """docstring for checkOptions"""
+#         opt = self.options
+#         if  opt.layerCount is not None and 
+        
 
 def check_wms(options, urls):
     """
@@ -142,22 +155,27 @@ def check_wms(options, urls):
             if imgFlag is not None:
                 fileHandler.savePic(layer[0], rOptions["Format"], pic)
             time = t1 - t0
-            time*= 1000
+            time *= 1000
             # print "%s was %d before being done" % (layer[0], time)
 
             result = 0
 
             # Check what the result should be.
-            if warnTimer <= time < critTimer:
+            print warnTimer, time ,critTimer, tout
+            
+            if warnTimer <= time:
+                print "there is a warn"
                 result = 1
-            elif critTimer <= time < tout:
+            if critTimer <= time:
+                print "there is a crit"
                 result = 2
         except urllib2.URLError, e:
             result = 2
             time = -1
             size = -1
             raise e
-       
+        
+        print result
             
         if result not in timeDict:
             timeDict[result] = []
@@ -242,7 +260,7 @@ def packData(values, capTime, getGeo):
     
     minStr = ",'t_min'=%dms" % timeList[0]
     maxStr = ",'t_max'=%dms" % timeList.pop()
-    oStr = "'t_get_capabilities'=%d" % capTime
+    oStr = "'t_get_capabilities'=%dms" % capTime
     
     return oStr + maxStr + minStr + resStr
 
@@ -578,6 +596,15 @@ class FileHandler():
             return xml
         return None
     
+
+
+class WmsError(Exception):
+    def __init__(self, value):
+        self.value = value
     
+    def __str__(self):
+        return repr(self.value)
+    
+
 check_wms(options, args)
     
