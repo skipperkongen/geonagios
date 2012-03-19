@@ -1,3 +1,5 @@
+#!/usr/bin/python
+from math import radians, cos, sin, asin, sqrt
 import os, sys
 import xml.etree.ElementTree as tree
 import urllib2
@@ -8,7 +10,9 @@ from optparse import OptionParser
 import datetime
 import hashlib
 import re
+import math
 import mimetypes as mime
+from pyproj import Proj, Geod, transform
 
 ###############
 # Setting up the options the user can set.
@@ -99,7 +103,7 @@ class CheckWms():
                     
         except WmsError, e:
             print e.value
-            raise sys.exit("")
+            sys.exit(2)
     
     
     def setup(self):
@@ -136,15 +140,15 @@ class CheckWms():
                                         flag, self.fileHandler, timeout = self.tout)
         except urllib2.HTTPError, e:
             print "HTTPerror code: %s, reason: %s" % (e.code, e.msg)
-            return 2
+            sys.exit(2)
         except urllib2.URLError, e:
             print "Get Capability got a timeout"
-            return 2
+            sys.exit(2)
             
         
         if listLayers is not None:
             self.listLayers()
-            return 0
+            sys.exit(0)
             
         rData = self.wms.getRandomData(self.lCount)
         
@@ -159,19 +163,19 @@ class CheckWms():
             if maximum is 2:
                 endStr = "there is at least one layer, which is critical"
                 print "%s|%s" % (endStr, pData)
-                return 2
+                sys.exit(2)
             elif maximum is 1:
                 endStr = "There is at least one layer, which is warrning"
                 print "%s|%s" % (endStr, pData)
-                return 1
+                sys.exit(1)
             else:
                 endStr = "Everything is O.K"
                 print "%s|%s" % (endStr, pData)
-                return 0
+                sys.exit(0)
             
         except WmsError, e:
             print e.value
-            return 2
+            sys.exit(2)
         
     
     
@@ -378,7 +382,7 @@ class WebMapService():
         except tree.ParseError, e:
             print "Something is wrong with the xml from getcapabilities" \
                     + "\nPlease check you have entered a valid url"
-            raise sys.exit("")
+            sys.exit(2)
         
         
     
@@ -403,7 +407,7 @@ class WebMapService():
                 fName = self.fh.setCap(self.getCap())
         except WmsError, e:
             print e.value
-            raise sys.exit("")
+            sys.exit(2)
             
         
         self.fName = fName
@@ -442,6 +446,7 @@ class WebMapService():
             se_tree = tree.fromstring(se_xml)
             err_message = unicode(se_tree.find('ServiceException').text).strip()
             raise WmsError(err_message)
+            
         return xmlCap
     
     
@@ -516,8 +521,6 @@ class WebMapService():
         if not "?" in urlBase:
             urlBase += "?"
         
-        print (urlBase + data)
-        
         u = urllib2.urlopen((urlBase + data), timeout = self.timeout)
         # check for service exceptions, and return
         
@@ -525,7 +528,7 @@ class WebMapService():
               se_xml = u.read()
               se_tree = tree.fromstring(se_xml)
               err_message = unicode(se_tree.find('ServiceException').text).strip()
-              print err_message
+              raise WmsError(err_message)
         return u.read()
     
     
@@ -584,36 +587,54 @@ class Layer():
     
     
     def getRandomBbox(self, srs):
-        """docstring for getRandomBbox"""
+        """docstring for getRandomBbox
+        The calculations in this methode is not 100% accurate
+        """
         bBox = self.srs[srs]
-        scaleX = (float(bBox[2]) - float(bBox[0])) / 100.0
-        scaleY = (float(bBox[3]) - float(bBox[1])) / 100.0
-        maxX = float(bBox[2]) - scaleX
-        maxY = float(bBox[3]) - scaleY
+        geod = Geod(ellps='sphere')
+        dist = math.sqrt(20000)
+        latLong = Proj(proj='latlong')
+        p = Proj(init=srs)
+        minX, minY = transform(p, latLong, bBox[0], bBox[1])
+        maxX, maxY = transform(p, latLong, bBox[2], bBox[3])
+        
+        maxX, maxY, trash = geod.fwd(maxX, maxY, 225, dist)
+        
+        rMinX = random.uniform(minX, maxX)
+        rMinY = random.uniform(minY, maxY)
+        
+        rMaxX, rMaxY, trash = geod.fwd(rMinX, rMinY, 45, dist)
         
         
-        randomX = random.uniform(float(bBox[0]), maxX)
-        randomY = random.uniform(float(bBox[1]), maxY)
+        res0, res1 = transform(latLong, p, rMinX, rMinY)
+        res2, res3 = transform(latLong, p, rMaxX, rMaxY)
         
-        res0 = "%.4f" % randomX
-        res1 = "%.4f" % randomY
-        res2 = "%.4f" % (randomX + scaleX)
-        res3 = "%.4f" % (randomY + scaleY)
-        
-        randomBox = (res0, res1, res2, res3)
+        randomBox = (str(res0), str(res1), str(res2), str(res3))
         
         return randomBox
+    
+    def calDist(self, lat, lon, lat2, lon2):
+        """This is just for testing purpose"""
+        lon1, lat1, lon2, lat2 = map(radians, [lon, lat, lon2, lat2])
+        # haversine formula 
+        dlon = lon2 - lon1 
+        dlat = lat2 - lat1 
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * asin(sqrt(a)) 
+        km = 6367 * c
+        print km
     
 
 
 class FileHandler():
     """docstring for FileHandler"""
     def __init__(self, url):
+        homedir = os.path.expanduser('~')
         pattern = "http://(.[^/]+)"
         self.dirName = re.findall(pattern, url)[0].replace(".", "_")
-        self.picDir = "check_wms_files/images/" + self.dirName
-        self.capDir = "check_wms_files/cache"
-        self.initDir()
+        self.picDir =  homedir + "/check_wms_files/images/" + self.dirName
+        self.capDir = homedir + "/check_wms_files/cache"
+        self.initDir(homedir)
         
         m = hashlib.md5()
         m.update(self.dirName)
@@ -625,19 +646,22 @@ class FileHandler():
             self.cache = None
     
         
-    def initDir(self):
+    def initDir(self, homedir):
         """docstring for initDir"""
-        if not os.path.exists("check_wms_files"):
-            os.mkdir("check_wms_files")
+        fDir = homedir + "/check_wms_files"
+        if not os.path.exists(fDir):
+            os.mkdir(fDir)
             
-        if not os.path.exists("check_wms_files/cache"):
-            os.mkdir("check_wms_files/cache")
+        cDir = fDir + "/cache"
+        if not os.path.exists(cDir):
+            os.mkdir(cDir)
+        
+        iDir = fDir + "/images"
+        if not os.path.exists(iDir):
+            os.mkdir(iDir)
             
-        if not os.path.exists("check_wms_files/images"):
-            os.mkdir("check_wms_files/images")
-            
-        if not os.path.exists("check_wms_files/images/" + self.dirName):
-            os.mkdir(("check_wms_files/images/" + self.dirName))
+        if not os.path.exists(self.picDir):
+            os.mkdir(self.picDir)
     
             
     def savePic(self, lName, format, fd):
@@ -682,6 +706,7 @@ class FileHandler():
     
 
 
+
 class WmsError(Exception):
     def __init__(self, value):
         self.value = value
@@ -691,6 +716,10 @@ class WmsError(Exception):
     
 
 
-# check_wms(options, args)
-CheckWms(options, args).run()
+try:
+    CheckWms(options, args).run()
+except Exception, e:
+    print e
+    sys.exit(2)
+
     
