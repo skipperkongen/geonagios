@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 from math import radians, cos, sin, asin, sqrt
 import os, sys
 import xml.etree.ElementTree as tree
@@ -80,8 +80,14 @@ class CheckWms():
     def __init__(self, options, args):
         self.options = options
         self.args = args
-        self.checkOptions()
+        
+        if len(self.args) is 0:
+            parser.print_help()
+            sys.exit(2)
+        
         self.setup()
+        self.checkOptions()
+        
     
     
     def checkOptions(self):
@@ -92,14 +98,27 @@ class CheckWms():
                 if opt.layerCount is not None or \
                         opt.speLayer is not None:
                     raise WmsError("You can not use -s and/or -n with -l")
+                if self.pLayers is not None or \
+                        self.pBox is not None:
+                    raise WmsError("You can not specify the param bbox and/or layers with -l")
             
             if opt.layerCount is not None:
                 if opt.speLayer is not None:
                     raise WmsError("Please only specify -s or -n")
                     
+                if self.pLayers is not None:
+                    raise WmsError("You can not specify the param \"layers\" with -n")
+                    
             elif opt.speLayer is not None:
                 if opt.layerCount is not None:
                     raise WmsError("Please only specify -s or -n")
+                if self.pLayers is not None and \
+                        opt.speLayer is not self.argDict["LAYERS"]:
+                    raise WmsError("You can not both specify a layer in the url and with -s")
+                    
+            if self.pBox is not None \
+                    and self.pSrs is None:
+                raise WmsError("You need to have both the \"bbox\" and the \"srs\" parameters in the url")
                     
         except WmsError, e:
             print e.value
@@ -114,6 +133,7 @@ class CheckWms():
     
     def run(self):
         """docstring for run"""
+        
         opt = self.options
         
         self.lCount = opt.layerCount
@@ -152,9 +172,35 @@ class CheckWms():
             
         rData = self.wms.getRandomData(self.lCount)
         
+        if self.pSrs:
+            rData["SRS"] = self.checkSrs(self.pSrs)
+        
         try:
             if opt.speLayer is not None:
-                rData["Layers"] = self.checkLayers(opt.speLayer, rData["SRS"])
+                bbox = None
+                if self.pBox is not None:
+                    srs = self.pSrs
+                    bbox = self.pBox
+                elif self.pSrs is not None:
+                    srs = self.pSrs
+                    
+                rData["Layers"] = self.checkLayers(opt.speLayer, rData["SRS"], bbox)
+                
+            elif self.pLayers:
+                bbox = None
+                if self.pBox is not None:
+                    srs = self.pSrs
+                    bbox = self.pBox
+                elif self.pSrs is not None:
+                    srs = self.pSrs
+                    
+                rData["Layers"] = self.checkLayers(self.pLayers, rData["SRS"], bbox)
+                
+            elif self.pBox is not None:
+                for l in range(len(rData["Layers"])):
+                    bbox = tuple(self.pBox.split(","))
+                    if rData["Layers"][l][0].checkBbox(bbox, self.pSrs):
+                        rData["Layers"][l] = (rData["Layers"][l][0], bbox)
             
             maximum, tData, tCap = self.checkWms(rData)
             
@@ -169,7 +215,7 @@ class CheckWms():
                 print "%s|%s" % (endStr, pData)
                 sys.exit(1)
             else:
-                endStr = "Everything is O.K"
+                endStr = "OK"
                 print "%s|%s" % (endStr, pData)
                 sys.exit(0)
             
@@ -229,7 +275,7 @@ class CheckWms():
     
     def check_service(self, wms, layer, style, srs, bbox, format, size = (200,200)):
         """docstring for check_service"""
-        img = wms.getMap( layer = layer,
+        img = wms.getMap( layer = layer.name,
                         style = style,
                         srs = srs,
                         bbox = bbox,
@@ -239,17 +285,36 @@ class CheckWms():
         return img
     
     
-    def checkLayers(self, speLayer, srs):
-        layers = speLayer.split(",")
+    def checkLayers(self, speLayer, srs, bbox):
+        if speLayer is not None:
+            layers = speLayer.split(",")
+            
         isLayer = False
         realLayer = []
         wmsLayer = self.wms.getLayersDict()
-        for l in layers:
-            if l in wmsLayer:
-                isLayer = True
-                realLayer.append((wmsLayer[l].name, wmsLayer[l].getRandomBbox(srs)))
-            else:
-                layers.remove(l)
+        if speLayer and srs and bbox:
+            for l in layers:
+                if l in wmsLayer:
+                    isLayer = True
+                    if wmsLayer[l].checkBbox(bbox, srs):
+                        realLayer.append((wmsLayer[l], bbox))
+                        
+        elif speLayer and srs:            
+            for l in layers:
+                if l in wmsLayer:
+                    isLayer = True
+                    realLayer.append((wmsLayer[l], wmsLayer[l].getRandomBbox(srs)))
+                else:
+                    layers.remove(l)
+                    
+        elif speLayer:            
+            for l in layers:
+                if l in wmsLayer:
+                    isLayer = True
+                    realLayer.append((wmsLayer[l], wmsLayer[l].getRandomBbox(srs)))
+                else:
+                    layers.remove(l)
+                    
         if not isLayer:
             raise WmsError("The layer(s) you have selected can not be found in this service")
             
@@ -263,11 +328,20 @@ class CheckWms():
             print layer
     
     
+    def checkSrs(self, srs):
+        if srs in self.wms.boundingbox.keys():
+            return srs
+        else:
+            raise WmsError("The SRS you have specified is not supported by the service")
+    
     def packUrl(self, urlStr):
         """docstring for packUrl"""
         url = urlStr.split('?')[0]
         
         argDict = {}
+        self.pBox = None
+        self.pLayers = None
+        self.pSrs = None
         
         if len(urlStr.split('?')) > 1:
             arg = urlStr.split('?')[1]
@@ -281,6 +355,15 @@ class CheckWms():
         if not "SERVICE" in argDict:
             argDict["SERVICE"] = "WMS"
             
+        if "LAYERS" in argDict:
+            self.pLayers = argDict["LAYERS"]
+            
+        if "BBOX" in argDict:
+            self.pBox = argDict["BBOX"]
+            
+        if "SRS" in argDict:
+            self.pSrs = argDict["SRS"]
+            
         return url, argDict
     
     
@@ -290,7 +373,7 @@ class CheckWms():
         resStr = ""
         for key in values:
             for value in values[key]:
-                name = value[0]
+                name = value[0].name
                 bbox = value[1]
                 time = value[2]
                 size = value[3]
@@ -481,18 +564,18 @@ class WebMapService():
                 bbox, format, size,
                 bgcolor='#FFFFFF',
                 exceptions='application/vnd.ogc.se_xml',
-                method='Get',):
+                method='Get' ):
         
         urlBase = self.operation["get"]   
         
         request = self.urlArgs
-             
+        
         if not "VERSION" in request:
             request["VERSION"] = self.version
-            
+        
         if not "REQUEST" in request or not request["REQUEST"] == 'GetMap':
             request["REQUEST"] = 'GetMap'
-            
+        
         request['LAYERS'] = layer
         
         if not "STYLES" in request:
@@ -500,21 +583,25 @@ class WebMapService():
         
         if not 'TRANSPARENT' in request:
             request['TRANSPARENT'] = "FALSE"
-        
-        request['WIDTH'] = str(size[0])
             
-        request['HEIGHT'] = str(size[1])
-        
-        if not "SRS" in request:
-            request['SRS'] = str(srs)
+        if not 'WIDTH' in request:
+            request['WIDTH'] = str(size[0])
             
+        if not 'HEIGHT' in request:
+            request['HEIGHT'] = str(size[1])
+        
+        request['SRS'] = str(srs)
+        
         request['BBOX'] = ','.join([x for x in bbox])
-            
-        request['FORMAT'] = str(format)
-            
-        request['BGCOLOR'] = '0x' + bgcolor[1:7]
-            
-        request['EXCEPTIONS'] = str(exceptions)
+        
+        if not 'FORMAT' in request:
+            request['FORMAT'] = str(format)
+        
+        if not 'BGCOLOR' in request:
+            request['BGCOLOR'] = '0x' + bgcolor[1:7]
+        
+        if not 'EXCEPTIONS' in request:
+            request['EXCEPTIONS'] = str(exceptions)
         
         data = urlencode(request)
         
@@ -525,10 +612,10 @@ class WebMapService():
         # check for service exceptions, and return
         
         if u.info()['Content-Type'] == 'application/vnd.ogc.se_xml':
-              se_xml = u.read()
-              se_tree = tree.fromstring(se_xml)
-              err_message = unicode(se_tree.find('ServiceException').text).strip()
-              raise WmsError(err_message)
+            se_xml = u.read()
+            se_tree = tree.fromstring(se_xml)
+            err_message = unicode(se_tree.find('ServiceException').text).strip()
+            raise WmsError(err_message)
         return u.read()
     
     
@@ -538,6 +625,7 @@ class WebMapService():
         resDict = {}
         
         srs = random.sample(self.boundingbox.keys(), 1)[0]
+        
         if count is not None and count < len(self.layers):
             rLayers = random.sample(self.layers, count)
         else:
@@ -548,7 +636,7 @@ class WebMapService():
         resDict["Layers"] = []
         
         for layer in rLayers:
-            resDict["Layers"].append((layer.name, layer.getRandomBbox(srs)))
+            resDict["Layers"].append((layer, layer.getRandomBbox(srs)))
         
         resDict["Format"] = random.sample(self.formats, 1)[0]
         
@@ -560,6 +648,7 @@ class WebMapService():
         for layer in self.layers:
             layerDict[layer.name] = layer
         return layerDict
+    
     
 
 
@@ -594,6 +683,10 @@ class Layer():
         geod = Geod(ellps='sphere')
         dist = math.sqrt(20000)
         latLong = Proj(proj='latlong')
+        
+        if srs is "EPSG:900913":
+            srs = "EPSG:3857"
+            
         p = Proj(init=srs)
         minX, minY = transform(p, latLong, bBox[0], bBox[1])
         maxX, maxY = transform(p, latLong, bBox[2], bBox[3])
@@ -613,6 +706,7 @@ class Layer():
         
         return randomBox
     
+    
     def calDist(self, lat, lon, lat2, lon2):
         """This is just for testing purpose"""
         lon1, lat1, lon2, lat2 = map(radians, [lon, lat, lon2, lat2])
@@ -624,6 +718,24 @@ class Layer():
         km = 6367 * c
         print km
     
+    
+    def checkBbox(self, bbox, srs):
+        
+        layerBox = map(float, bbox)
+        
+        serviceBox = map(float, self.srs[srs])
+        
+        minX = serviceBox[0] <= layerBox[0] <= serviceBox[2]
+        minY = serviceBox[1] <= layerBox[1] <= serviceBox[3]
+        
+        maxX = serviceBox[0] <= layerBox[2] <= serviceBox[2]
+        maxY = serviceBox[1] <= layerBox[3] <= serviceBox[3]
+        
+        if minX and maxX \
+                and minY and maxY:
+            return True
+        else:
+            raise WmsError("The specified boundbox is not supported by the service")
 
 
 class FileHandler():
@@ -676,8 +788,7 @@ class FileHandler():
         f.write(fd)
         f.close()
     
-        
-        
+              
     def setCap(self, xml):
         """docstring for setCap"""
         
@@ -704,7 +815,6 @@ class FileHandler():
             return xml
         return None
     
-
 
 
 class WmsError(Exception):
