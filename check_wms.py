@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os, sys
 import xml.etree.ElementTree as tree
 import urllib2
