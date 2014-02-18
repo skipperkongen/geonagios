@@ -1,6 +1,6 @@
 # About GeoNagios
 
-GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It tests the availability and performance of a geospatial web service, e.g. [Web Map Service](http://en.wikipedia.org/wiki/Web_Map_Service) (WMS). 
+GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It tests the availability and performance of a geospatial web service, e.g. [Web Map Service](http://en.wikipedia.org/wiki/Web_Map_Service) (WMS). It measures latency and size of response in bytes. 
 
 <table>
 <tr><th>Protocol</th><th>Implemented by</th><th>Finished</th></tr>
@@ -12,7 +12,7 @@ GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It
 <tr><td>TMS</td><td>check_tms.py</td><td></td></tr>
 </table>
 
-It measures latency and size of response in bytes. Some sample output:
+Some sample output from GeoNagios (a WMS service with two layers: 'layer_1' and 'layer_2'):
 
 ```bash
 OK|'time_get_capabilities'=785ms,'max_time'=214ms,'min_time'=60ms,'time_layer_1'=214ms,'size_layer_1'=1340B,'time_layer_2'=60ms,'size_layer_2'=1340B
