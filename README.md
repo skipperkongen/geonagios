@@ -36,29 +36,6 @@ Get help by calling *check_wms.py* with the *--help* option:
 
 ```bash
 $./check_wms.py --help
-Usage: check_wms.py [OPTIONS] WMS_SERVICE_URL
-
-Options:
-  -h, --help            show this help message and exit
-  -w WARNING, --warning=WARNING
-                        Configure maximum latency for service response time,
-                        without raising warning. Argument is an integer
-                        (milliseconds)
-  -c CRITICAL, --critical=CRITICAL
-                        Configure maximum latency for service response time,
-                        without raising a critical error. Argument is an
-                        integer (milliseconds)
-  -t TIMEOUT, --timeout=TIMEOUT
-                        Set the test timeout (default is 30 seconds). Argument
-                        is an integer (seconds).
-  -n LAYERCOUNT         Test *n* random layers (default is to check all
-                        layers). Argument is an integer.
-  --cache-capabilities  Save a copy of getCapabilities on disk, and reuse on
-                        next run. No argument.
-  -l, --list            List the layers available from service. No argument.
-  -s SPECIFICLAYER, --specific-layers=SPECIFICLAYER
-                        A list of layers (subset of layers from service) to
-                        test. Argument is a string like 'foo,bar,baz'.
 ```
 
 List the layers available for a WMS service by calling *check_wms.py* with the *--list-layers* option:
