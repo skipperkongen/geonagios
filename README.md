@@ -45,7 +45,7 @@ opstillingskreds
 postdistrikt
 ```
 
-To simply test the *all* the layers for a WMS sercice, call *check_wms.py* with no options, only the URL argument:
+Test *all* the layers by calling *check_wms.py* without options (only the URL argument):
 
 ```bash
 $ ./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' | tr ',' '\n' | tr '|' '\n'
@@ -69,13 +69,13 @@ OK
 'size_postdistrikt'=1340B
 ```
 
-To test only a subset of the layers for a service, use the *--specific-layers* option:
+Test *some* of the layers by calling *check_wms.py* with the *--specific-layers* option:
 
 ```bash
 $ ./check_wms.py --specific-layers 'COMMA-SEPARATED-VALUES' [SERVICEURL]
 ``` 
 
-To test only *n* randomly picked layers, use the *--n-layers* option:
+Test *n* randomly picked layers by calling *check_wms.py* with the *--n-layers* option:
 
 ```bash
 $ ./check_wms.py --n-layers INTEGER [SERVICEURL]
