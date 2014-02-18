@@ -23,7 +23,7 @@ GeoNagios is written in [Python](http://www.python.org/) (tested with 2.6 and 2.
 pip install pyproj  # maybe need 'sudo' in front
 ```
 
-## Getting Started
+## Getting started with GeoNagios
 
 Get a copy of *check_wms.py*:
 
