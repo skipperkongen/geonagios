@@ -1,6 +1,6 @@
-## About GeoNagios
+# About GeoNagios
 
-GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It tests the availability and performance of a geospatial web service, e.g. [Web Map Service](http://en.wikipedia.org/wiki/Web_Map_Service) (WMS). GeoNagios is written in [Python](http://www.python.org/) (tested with 2.6 and 2.7). Dependencies are Python 2.5+ and [pyproj](http://code.google.com/p/pyproj/). It currently only supports WMS, but additional protocols are planned.
+GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It tests the availability and performance of a geospatial web service, e.g. [Web Map Service](http://en.wikipedia.org/wiki/Web_Map_Service) (WMS). 
 
 <table>
 <tr><th>Protocol</th><th>Implemented by</th><th>Finished</th></tr>
@@ -12,7 +12,25 @@ GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It
 <tr><td>TMS</td><td>check_tms.py</td><td></td></tr>
 </table>
 
-## Pages
+GeoNagios has been developed with support from the [Danish Geodata Agency](http://www.gst.dk) and the [University of Copenhagen, Department of Computer Science](http://di.ku.dk/).
+
+## Dependencies
+
+GeoNagios is written in [Python](http://www.python.org/) (tested with 2.6 and 2.7). Dependencies are Python 2.5+ and [pyproj](http://code.google.com/p/pyproj/). It currently only supports WMS, but additional protocols are planned.
+
+```bash
+# easy_install pyproj
+pip install pyproj  # maybe need 'sudo' in front
+```
+
+## Getting Started
+
+```bash
+curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check_wms.py
+chmod u+x check_wms.py
+./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' -l
+```
+
 
 New sections:
 
