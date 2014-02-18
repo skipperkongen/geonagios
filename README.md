@@ -72,7 +72,7 @@ OK
 Test some of the layers by calling *check_wms.py* with the *--specific-layers* option:
 
 ```bash
-$ ./check_wms.py --specific-layers 'COMMA-SEPARATED-VALUES' [SERVICEURL]
+$ ./check_wms.py --specific-layers 'COMMA-SEPARATED-LAYER-NAMES' [SERVICEURL]
 ``` 
 
 Test *n* randomly picked layers by calling *check_wms.py* with the *--n-layers* option:
