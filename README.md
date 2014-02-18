@@ -12,6 +12,12 @@ GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It
 <tr><td>TMS</td><td>check_tms.py</td><td></td></tr>
 </table>
 
+It measures latency and size of response in bytes. Some sample output:
+
+```bash
+OK|'time_get_capabilities'=785ms,'max_time'=214ms,'min_time'=60ms,'time_layer_1'=214ms,'size_layer_1'=1340B,'time_layer_2'=60ms,'size_layer_2'=1340B
+```
+
 GeoNagios has been developed with support from the [Danish Geodata Agency](http://www.gst.dk) and the [University of Copenhagen, Department of Computer Science](http://di.ku.dk/).
 
 ## Dependencies
