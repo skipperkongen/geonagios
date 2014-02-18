@@ -53,13 +53,13 @@ parser.add_option(	"-n", "--test-n",
 parser.add_option(	"--cache-capabilities", 
 					dest = "cache_capabilities", 
 					action="store_true",
-					help = "Save a copy of getCapabilities on disk, and reuse on next run. No argument."
+					help = "Save a copy of GetCapabilities XML on disk, and reuse on next run."
 					)
 parser.add_option(	"-l", "--list-layers",
 					dest = "list_layers",
 					default = False,
 					action="store_true",
-					help = "List the layers available from service. No argument."
+					help = "List the layers available from service"
 					)
 parser.add_option(	"-s", "--test-layers",
 					dest = "test_layers", 
