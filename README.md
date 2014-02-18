@@ -32,7 +32,7 @@ curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check
 chmod u+x check_wms.py
 ```
 
-List the layers for the DAGI WMS service:
+List the layers available for a WMS service:
 
 ```bash
 $ ./check_wms.py --list-layers 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' 
@@ -45,7 +45,7 @@ opstillingskreds
 postdistrikt
 ```
 
-Test the DAGI WMS service (put result for each layer on separate line with *tr* command):
+To simply test the *all* the layers for a WMS sercice, call *check_wms.py* with no options, only the URL argument:
 
 ```bash
 $ ./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' | tr ',' '\n' | tr '|' '\n'
