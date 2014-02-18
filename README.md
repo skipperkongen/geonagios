@@ -26,9 +26,16 @@ pip install pyproj  # maybe need 'sudo' in front
 ## Getting Started
 
 ```bash
-curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check_wms.py
-chmod u+x check_wms.py
-./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' -l
+$ curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check_wms.py
+$ chmod u+x check_wms.py
+$ ./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' -l
+politikreds
+sogn
+kommune
+region
+retskreds
+opstillingskreds
+postdistrikt
 ```
 
 
