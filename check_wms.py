@@ -23,7 +23,8 @@ from pyproj import Proj, Geod, transform
 # --cached is a flag. If the flag is set, the script will only use getCap one time a day
 ###############
 
-parser = OptionParser()
+usage = "usage: %prog [OPTIONS] WMS_SERVICE_URL"
+parser = OptionParser(usage=usage)
 
 parser.add_option(	"-w", "--warning",
 					dest = "warning", 
