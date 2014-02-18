@@ -14,6 +14,14 @@ GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It
 
 ## Pages
 
+New sections:
+
+* Getting started with GeoNagios
+* Install and configure Nagios (the general purpose monitoring software) to use GeoNagios
+* Installing GeoNagios on EC2
+
+Old sections
+
 * [How GeoNagios works](docs/how-geonagios-works.md) - Description of the method used to test services
 * [Installing GeoNagios on EC2](geonagios-on-ec2.md) - These instruction a for Amazon Linux AMI 64 bit, but can easily be adopted for Windows, Mac OS X or another Linux flavour.
 * [Examples](docs/examples.md) - Examples of using GeoNagios on the commandline and inside Nagios
