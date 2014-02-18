@@ -32,7 +32,7 @@ curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check
 chmod u+x check_wms.py
 ```
 
-To get help:
+Get help by calling *check_wms.py* with the *--help* option:
 
 ```bash
 $./check_wms.py --help
