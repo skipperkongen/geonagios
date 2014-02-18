@@ -32,7 +32,7 @@ curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check
 chmod u+x check_wms.py
 ```
 
-List the layers available for a WMS service:
+List the layers available for a WMS service by calling *check_wms.py* with the *--list-layers* option:
 
 ```bash
 $ ./check_wms.py --list-layers 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' 
@@ -45,7 +45,7 @@ opstillingskreds
 postdistrikt
 ```
 
-Test *all* the layers by calling *check_wms.py* without options (only the URL argument):
+Test all the layers by calling *check_wms.py* without options (only the URL argument):
 
 ```bash
 $ ./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' | tr ',' '\n' | tr '|' '\n'
@@ -69,7 +69,7 @@ OK
 'size_postdistrikt'=1340B
 ```
 
-Test *some* of the layers by calling *check_wms.py* with the *--specific-layers* option:
+Test some of the layers by calling *check_wms.py* with the *--specific-layers* option:
 
 ```bash
 $ ./check_wms.py --specific-layers 'COMMA-SEPARATED-VALUES' [SERVICEURL]
