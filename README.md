@@ -81,46 +81,68 @@ Test *n* randomly picked layers by calling *check_wms.py* with the *--n-layers* 
 $ ./check_wms.py --n-layers INTEGER [SERVICEURL]
 ```
 
-New sections:
+## Configure Nagios to use GeoNagios
 
-* Getting started with GeoNagios
-* Install and configure Nagios (the general purpose monitoring software) to use GeoNagios
-* Installing GeoNagios on EC2
+Remember there are multiple ways to configurate Nagios. This is just one way! 
 
-Old sections
+### Define host
+
+Host template:
+
+```
+define host {
+        name                            generic-wmshost ; The name of this host template
+        hostgroups                      geospatial-servers
+        notifications_enabled           0
+        check_command                   check-wms
+        check_interval                  1
+        retry_interval                  1
+        max_check_attempts              5
+        check_period                    24x7
+        event_handler_enabled           1               ; Host event handler is enabled
+        flap_detection_enabled          1               ; Flap detection is enabled
+        failure_prediction_enabled      1               ; Failure prediction is enabled
+        process_perf_data               1               ; Process performance data
+        retain_status_information       1               ; Retain status information across program restarts
+        retain_nonstatus_information    1               ; Retain non-status information across program restarts
+        register                        0               
+}
+```
+
+Host:
+
+```
+define host {
+        use             generic-wmshost
+        host_name       plansystem
+        alias           Plansystem - local plans for Denmark
+        address         http://kort.plansystem.dk
+	action_url	/wms?servicename=wms
+}
+```
+
+### Define command:
+
+(I have defined $USER3$ to point to where check_wms.py is)
+
+```
+define command {
+        command_name check_wms_py
+        command_line    $USER3$/check_wms.py $HOSTADDRESS$$HOSTACTIONURL$ $ARG1$
+}
+```
+
+### Define service:
+```
+define service {
+        use             generic-service
+        host_name       plansystem, eea_europa, arealinfo, vienna, kortforsyningen
+        service_description check_wms_services
+        check_command   check_wms_py ! -n 5 --cache
+}
+```
+
+## Additional documentation
 
 * [How GeoNagios works](docs/how-geonagios-works.md) - Description of the method used to test services
-* [Installing GeoNagios on EC2](geonagios-on-ec2.md) - These instruction a for Amazon Linux AMI 64 bit, but can easily be adopted for Windows, Mac OS X or another Linux flavour.
-* [Examples](docs/examples.md) - Examples of using GeoNagios on the commandline and inside Nagios
-* [API](docs/api.md) - See a list of the options you can use with GeoNagios
-
-## Quick start
-
-See [[Installing GeoNagios on Linux or Mac OS X]]) for list of dependencies. 
-
-Hello world of GeoNagios:
-
-```
-curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check_wms.py
-chmod u+x check_wms.py
-./check_wms.py 'http://kort.plansystem.dk/wms?servicename=wms' -n 1
-```
-
-This will check the WMS published at 'http://kort.plansystem.dk/wms?servicename=wms'. It picks a single, random layer from the layers listed in GetCapabilities, and tests it using a GetMap request.
-
-You should see output similar to the following:
-
-```
-OK|
-'t_get_capabilities'=824ms,
-'t_max'=824ms,
-'t_min'=824ms,
-'t_theme-pdk-lavbundsareal_aflyst'=824ms,
-'s_theme-pdk-lavbundsareal_aflyst'=126032B
-```
-
-## Test servers (WMS)
-
-A few public WMS services have been listed on this wiki for test purposes:
-
-See [public WMS servers](docs/public-wms-servers.md) for a list of WMS servers to use for testing.
+* [Installing GeoNagios on EC2](geonagios-on-ec2.md) - These instruction are for Amazon Linux AMI 64 bit, but can easily be adopted for Windows, Mac OS X or another Linux flavour.
