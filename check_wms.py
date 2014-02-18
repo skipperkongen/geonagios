@@ -57,7 +57,7 @@ parser.add_option(	"-l", "--list",
 					dest = "listLayer", 
 					action="store_true",
 					help = "List the layers available from service. No argument.")
-parser.add_option(	"-L", "--layers",
+parser.add_option(	"-s", "--specific-layers",
 					dest = "specificLayer", 
 					type = "string", 
 					help = "A list of layers (subset of layers from service) to test. Argument is a string like 'foo,bar,baz'.")

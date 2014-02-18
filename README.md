@@ -25,10 +25,17 @@ pip install pyproj  # maybe need 'sudo' in front
 
 ## Getting Started
 
+Get a copy of *check_wms.py*:
+
 ```bash
-$ curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check_wms.py
-$ chmod u+x check_wms.py
-$ ./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' -l
+curl -o check_wms.py https://raw.github.com/skipperkongen/GeoNagios/master/check_wms.py
+chmod u+x check_wms.py
+```
+
+List the layers for the DAGI WMS service:
+
+```bash
+$ ./check_wms.py --list-layers 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' 
 politikreds
 sogn
 kommune
@@ -38,6 +45,41 @@ opstillingskreds
 postdistrikt
 ```
 
+Test the DAGI WMS service (put result for each layer on separate line with *tr* command):
+
+```bash
+$ ./check_wms.py 'http://kortforsyningen.kms.dk/service?ticket=1940ecb511e4d1a92df01347a85aa30f&servicename=dagi' | tr ',' '\n' | tr '|' '\n'
+OK
+'time_get_capabilities'=710ms
+'max_time'=330ms
+'min_time'=62ms
+'time_region'=330ms
+'size_region'=1340B
+'time_kommune'=76ms
+'size_kommune'=1340B
+'time_politikreds'=67ms
+'size_politikreds'=1340B
+'time_retskreds'=67ms
+'size_retskreds'=1340B
+'time_opstillingskreds'=62ms
+'size_opstillingskreds'=1340B
+'time_sogn'=71ms
+'size_sogn'=1340B
+'time_postdistrikt'=140ms
+'size_postdistrikt'=1340B
+```
+
+To test only a subset of the layers for a service, use the *--specific-layers* option:
+
+```bash
+$ ./check_wms.py --specific-layers 'COMMA-SEPARATED-VALUES' [SERVICEURL]
+``` 
+
+To test only *n* randomly picked layers, use the *--n-layers* option:
+
+```bash
+$ ./check_wms.py --n-layers INTEGER [SERVICEURL]
+```
 
 New sections:
 
