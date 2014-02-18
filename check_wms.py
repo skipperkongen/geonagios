@@ -26,14 +26,14 @@ from pyproj import Proj, Geod, transform
 usage = "usage: %prog [OPTIONS] WMS_SERVICE_URL"
 parser = OptionParser(usage=usage)
 
-parser.add_option(	"-w", "--warning",
-					dest = "warning", 
+parser.add_option(	"-w", "--warning-latency",
+					dest = "warning_latency", 
 					default = 10000, 
 					type = "int",
 					help = "Configure maximum latency for service response time, without raising warning. Argument is an integer (milliseconds)"
 					)
-parser.add_option(	"-c", "--critical",
-					dest = "critical",
+parser.add_option(	"-c", "--critical-latency",
+					dest = "critical_latency",
 					default = 30000,
 					type = "int",
 					help = "Configure maximum latency for service response time, without raising a critical error. Argument is an integer (milliseconds)"
@@ -42,31 +42,35 @@ parser.add_option(	"-t", "--timeout",
 					dest = "timeout",
 					default = None,
 					type = "int",
-					help = "Set the test timeout (default is 30 seconds). Argument is an integer (seconds)."
+					help = "Set the timeout before aborting test (default is 30 seconds). Argument is an integer (seconds)."
 					)
-parser.add_option(	"-n",
-					dest = "layerCount",
+parser.add_option(	"-n", "--test-n",
+					dest = "test_n",
 					default = None,
 					type = "int",
 					help = "Test *n* random layers (default is to check all layers). Argument is an integer."
 					)
 parser.add_option(	"--cache-capabilities", 
-					dest = "cached", 
+					dest = "cache_capabilities", 
 					action="store_true",
-					help = "Save a copy of getCapabilities on disk, and reuse on next run. No argument.")
-parser.add_option(	"-l", "--list",
-					dest = "listLayer", 
+					help = "Save a copy of getCapabilities on disk, and reuse on next run. No argument."
+					)
+parser.add_option(	"-l", "--list-layers",
+					dest = "list_layers",
+					default = False,
 					action="store_true",
-					help = "List the layers available from service. No argument.")
-parser.add_option(	"-s", "--specific-layers",
-					dest = "specificLayer", 
+					help = "List the layers available from service. No argument."
+					)
+parser.add_option(	"-s", "--test-layers",
+					dest = "test_layers", 
 					type = "string", 
-					help = "A list of layers (subset of layers from service) to test. Argument is a string like 'foo,bar,baz'.")
+					help = "A list of layers (subset of layers from service) to test. Argument is a string like 'foo,bar,baz'."
+					)
 					
 (options, args) = parser.parse_args()
 
 class CheckWms():
-	"""docstring for CheckWms"""
+	"""Main class containing the run method"""
 	def __init__(self, options, args):
 		self.options = options
 		self.args = args
@@ -77,33 +81,31 @@ class CheckWms():
 		
 		self.setup()
 		self.checkOptions()
-		
-	
 	
 	def checkOptions(self):
-		"""docstring for checkOptions"""
+		"""Check that the options entered on the command-line are valid"""
 		opt = self.options
 		try:
-			if opt.listLayer is not None:
-				if opt.layerCount is not None or \
-						opt.specificLayer is not None:
+			if opt.list_layers:
+				if opt.test_n is not None or \
+						opt.test_layers is not None:
 					raise WmsError("You can not use -s and/or -n with -l")
 				if self.layersUrlParameter is not None or \
 						self.bboxUrlParameter is not None:
 					raise WmsError("You can not specify the param bbox and/or layers with -l")
 			
-			if opt.layerCount is not None:
-				if opt.specificLayer is not None:
+			if opt.test_n is not None:
+				if opt.test_layers is not None:
 					raise WmsError("Please only specify -s or -n")
 					
 				if self.layersUrlParameter is not None:
 					raise WmsError("You can not specify the param \"layers\" with -n")
 					
-			elif opt.specificLayer is not None:
-				if opt.layerCount is not None:
+			elif opt.test_layers is not None:
+				if opt.test_n is not None:
 					raise WmsError("Please only specify -s or -n")
 				if self.layersUrlParameter is not None and \
-						opt.specificLayer is not self.queryStringParameters["LAYERS"]:
+						opt.test_layers is not self.queryStringParameters["LAYERS"]:
 					raise WmsError("You can not both specify a layer in the url and with -s")
 					
 			if self.bboxUrlParameter is not None \
@@ -122,30 +124,18 @@ class CheckWms():
 	
 	
 	def run(self):
-		"""docstring for run"""
+		"""Main method of check_wms which dispatches all the checks"""
 		
 		opt = self.options
 		
-		self.layerCount = opt.layerCount
-		
-		if opt.timeout is not None:
-			self.tout = (opt.timeout / 1000)
-		else:
-			self.tout = opt.timeout
-			
-		self.critTimer = opt.critical
-		self.warnTimer = opt.warning
-		
-		flagListLayers = opt.listLayer
-		
-		flagCacheGetCapabilities = opt.cached
-		
+		self.timeout = math.ceil(opt.critical_latency/1000.0 + 1) if opt.timeout is None else opt.timeout
+											
 		self.fileHandler = FileHandler(self.url)
 				
 		try:
 			startTime = t.time()
 			self.wms = WebMapService(self.url, self.queryStringParameters, 
-										flagCacheGetCapabilities, self.fileHandler, timeout = self.tout)
+										opt.cache_capabilities, self.fileHandler, timeout = self.timeout)
 										
 			getCapabilitiesLatency = (t.time() - startTime) * 1000
 			 
@@ -153,21 +143,20 @@ class CheckWms():
 			print "HTTPerror code: %s, reason: %s" % (e.code, e.msg)
 			sys.exit(2)
 		except urllib2.URLError, e:
-			print "Get Capability got a timeout"
+			print "GetCapabilities got a timeout"
 			sys.exit(2)
-			
 		
-		if flagListLayers is not None:
+		if opt.list_layers:
 			self.listLayers()
 			sys.exit(0)
 			
-		randomTestData = self.wms.getRandomGetMapParameters(self.layerCount)
+		randomTestData = self.wms.getRandomGetMapParameters(opt.test_n)
 		
 		if self.srsUrlParameter:
 			randomTestData["SRS"] = self.checkSrs(self.srsUrlParameter)
 		
 		try:
-			if opt.specificLayer is not None:
+			if opt.test_layers is not None:
 				bbox = None
 				if self.bboxUrlParameter is not None:
 					srs = self.srsUrlParameter
@@ -175,7 +164,7 @@ class CheckWms():
 				elif self.srsUrlParameter is not None:
 					srs = self.srsUrlParameter
 					
-				randomTestData["Layers"] = self.checkLayers(opt.specificLayer, randomTestData["SRS"], bbox)
+				randomTestData["Layers"] = self.check_layers(opt.test_layers, randomTestData["SRS"], bbox)
 				
 			elif self.layersUrlParameter:
 				bbox = None
@@ -185,7 +174,7 @@ class CheckWms():
 				elif self.srsUrlParameter is not None:
 					srs = self.srsUrlParameter
 					
-				randomTestData["Layers"] = self.checkLayers(self.layersUrlParameter, randomTestData["SRS"], bbox)
+				randomTestData["Layers"] = self.check_layers(self.layersUrlParameter, randomTestData["SRS"], bbox)
 				
 			elif self.bboxUrlParameter is not None:
 				for l in range(len(randomTestData["Layers"])):
@@ -217,6 +206,10 @@ class CheckWms():
 	
 	
 	def checkWms(self, randomTestData):
+		"""Method called by run to check a WMS services"""
+
+		opt = self.options
+		
 		testResultsByStatus = {}
 		# Start to test the layers
 		for layer in randomTestData["Layers"]:
@@ -233,9 +226,9 @@ class CheckWms():
 				
 				# Check what the result should be.
 				
-				if self.warnTimer <= latency:
+				if latency >= opt.warning_latency:
 					status = 1
-				if self.critTimer <= latency:
+				if latency >= opt.critical_latency:
 					status = 2
 			except urllib2.URLError, e:
 				status = 2
@@ -269,35 +262,35 @@ class CheckWms():
 		return img
 	
 	
-	def checkLayers(self, specificLayersString, srs, bbox):
-		if specificLayersString is not None:
-			specificLayers = specificLayersString.split(",")
+	def check_layers(self, layer_list_string, srs, bbox):
+		if layer_list_string is not None:
+			layer_list = map(lambda x: x.strip(), layer_list_string.split(","))
 			
 		isValidLayer = False
 		layersToTest = []
 		layersInGetCapabilities = self.wms.getLayersDict()
-		if specificLayersString and srs and bbox:
-			for l in specificLayers:
+		if layer_list_string and srs and bbox:
+			for l in layer_list:
 				if l in layersInGetCapabilities:
 					isValidLayer = True
 					if layersInGetCapabilities[l].checkBbox(bbox, srs):
 						layersToTest.append((layersInGetCapabilities[l], bbox))
 						
-		elif specificLayersString and srs:			  
-			for l in specificLayers:
+		elif layer_list_string and srs:			  
+			for l in layer_list:
 				if l in layersInGetCapabilities:
 					isValidLayer = True
 					layersToTest.append((layersInGetCapabilities[l], layersInGetCapabilities[l].getRandomBbox(srs)))
 				else:
-					specificLayers.remove(l)
+					layer_list.remove(l)
 					
-		elif specificLayersString:			  
-			for l in specificLayers:
+		elif layer_list_string:			  
+			for l in layer_list:
 				if l in layersInGetCapabilities:
 					isValidLayer = True
 					layersToTest.append((layersInGetCapabilities[l], layersInGetCapabilities[l].getRandomBbox(srs)))
 				else:
-					specificLayers.remove(l)
+					layer_list.remove(l)
 					
 		if not isValidLayer:
 			raise WmsError("The layer(s) you have selected can not be found in this service")
