@@ -4,8 +4,8 @@ GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It
 
 <table>
 <tr><th>Protocol</th><th>Implemented by</th><th>Finished</th><th>Contributor</th></tr>
-<tr><td>WMS</td><td>check_wms.py</td><td>✓</td><td>@Skipperkongen, @Warlink, @JesperKihlberg</td></tr>
-<tr><td>WMTS</td><td>check_wmts.py</td><td>✓</td><td>@JesperKihlberg</td></tr>
+<tr><td>WMS</td><td>check_wms.py</td><td>✓</td><td>[Skipperkongen](https://github.com/skipperkongen), [Warlink](https://github.com/warlink), [JesperKihlberg](https://github.com/jesperkihlberg)</td></tr>
+<tr><td>WMTS</td><td>check_wmts.py</td><td>✓</td><td>[JesperKihlberg](https://github.com/jesperkihlberg)</td></tr>
 <tr><td>WFS</td><td>check_wfs.py</td><td></td><td></td></tr>
 <tr><td>WCS</td><td>check_wcs.py</td><td></td><td></td></tr>
 <tr><td>CSW</td><td>check_csw.py</td><td></td><td></td></tr>
