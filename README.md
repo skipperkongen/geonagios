@@ -12,7 +12,7 @@ GeoNagios is a plugin for the monitoring system [Nagios](http://nagios.org/). It
 <tr><td>TMS</td><td>check_tms.py</td><td></td></tr>
 </table>
 
-GeoNagios has been developed with support from the [Danish Geodata Agency](http://www.gst.dk) and the [University of Copenhagen, Department of Computer Science](http://di.ku.dk/).
+GeoNagios has been developed with support from the [Danish Geodata Agency](http://www.gst.dk), [Grontmij](http://www.grontmij.com) and the [University of Copenhagen, Department of Computer Science](http://di.ku.dk/).
 
 ## Dependencies
 
